@@ -1,6 +1,6 @@
 {
   "regions": ["hnd1"],
   "crons": [
-    { "path": "/api/cron/ingest", "schedule": "23 20 * * *" }
+    { "path": "/api/cron/ingest", "schedule": "17 */3 * * *" }
   ]
 }
