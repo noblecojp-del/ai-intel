@@ -3,10 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { q } from "./db";
 import { errMsg, finishJob, logJobError, startJob } from "./jobs";
 import { callClaude, toolInput } from "./usage";
+import { getMinScore } from "./settings";
 import { decideConfidence, jstDate, rankAll, SCORE_CRITERIA, selectTop, verifyAnalysis, type Fact, type RawScore, type ScoredStory } from "./brief-logic";
 
 export const ANALYSIS_MODEL = process.env.AI_ANALYSIS_MODEL || "claude-sonnet-5-5";
-const MIN_SCORE = Number(process.env.BRIEF_MIN_SCORE || 60);
 const MAX_CANDIDATES = 40;
 const WINDOW_HOURS = 24;
 
@@ -66,7 +66,7 @@ const SCORE_TOOL: Anthropic.Tool = {
   },
 };
 
-async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<{ top: ScoredStory[]; all: ScoredStory[] }> {
+async function scoreCandidates(client: Anthropic, cands: Candidate[], minScore: number): Promise<{ top: ScoredStory[]; all: ScoredStory[] }> {
   const list = cands
     .map((c) =>
       [
@@ -92,7 +92,7 @@ async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<{
     // 採点結果を読み取れない場合は「該当なし」と誤表示せず失敗として扱う
     throw new Error(`採点結果を読み取れませんでした: ${JSON.stringify(input).slice(0, 300)}`);
   }
-  return { top: selectTop(items, ids, MIN_SCORE, 5), all };
+  return { top: selectTop(items, ids, minScore, 5), all };
 }
 
 /** モデルによって出力の形が揺れるため、よくある形を吸収する（文字列化されたJSON・別名のキー・ID表記など） */
@@ -216,9 +216,26 @@ async function analyzeStory(client: Anthropic, storyId: number) {
 
 export type BriefResult = { date: string; status: string; items: number; note?: string };
 
-export async function runBrief(trigger = "manual", opts: { force?: boolean; date?: string } = {}): Promise<BriefResult> {
+export type ScoreSummary = {
+  min_score: number;
+  items: { story_id: number; title: string; total: number; reason: string; scores?: Record<string, number> }[];
+};
+
+/**
+ * opts.reuseScores: 既に付いている採点結果を使い、基準点だけ変えて選び直す（採点のAPI費用がかからない）。
+ * 既に分析済みのニュースは分析も再利用する。
+ */
+export async function runBrief(
+  trigger = "manual",
+  opts: { force?: boolean; date?: string; reuseScores?: boolean } = {},
+): Promise<BriefResult> {
   const date = opts.date ?? jstDate();
-  const [existing] = await q<{ id: number; status: string }>("SELECT id, status FROM daily_briefs WHERE brief_date=$1 AND NOT is_demo", [date]);
+  const MIN_SCORE = await getMinScore();
+  const [existing] = await q<{ id: number; status: string; score_summary: ScoreSummary | null; window_start: string; window_end: string }>(
+    "SELECT id, status, score_summary, window_start, window_end FROM daily_briefs WHERE brief_date=$1 AND NOT is_demo",
+    [date],
+  );
+  const reusable = opts.reuseScores && existing?.score_summary?.items?.length && existing.score_summary.items.every((i) => i.scores);
   if (existing && existing.status === "published" && !opts.force) {
     return { date, status: "skipped", items: 0, note: "本日分は公開済みのため再生成しませんでした" };
   }
@@ -230,8 +247,13 @@ export async function runBrief(trigger = "manual", opts: { force?: boolean; date
   }
 
   const runId = await startJob("brief", trigger);
-  const windowEnd = new Date();
-  const windowStart = new Date(windowEnd.getTime() - WINDOW_HOURS * 36e5);
+  const windowEnd = reusable ? new Date(existing!.window_end) : new Date();
+  const windowStart = reusable ? new Date(existing!.window_start) : new Date(windowEnd.getTime() - WINDOW_HOURS * 36e5);
+  // 再利用できる分析（同じ日・同じニュース）
+  const prevItems = existing
+    ? await q<any>("SELECT story_id, headline, analysis, confidence, confidence_note, check_status, check_note, model FROM brief_items WHERE brief_id=$1", [existing.id])
+    : [];
+  const prevByStory = new Map(prevItems.filter((p) => p.analysis).map((p) => [p.story_id as number, p]));
   const [brief] = await q<{ id: number }>(
     `INSERT INTO daily_briefs (brief_date, status, window_start, window_end, model, generated_at, note, published_at, candidate_count)
      VALUES ($1,'running',$2,$3,$4,now(),NULL,NULL,0)
@@ -250,6 +272,15 @@ export async function runBrief(trigger = "manual", opts: { force?: boolean; date
   };
 
   try {
+    let top: ScoredStory[];
+    let all: ScoredStory[];
+    let titleOf: Map<number, string>;
+    if (reusable) {
+      const sum = existing!.score_summary!;
+      all = sum.items.map((i) => ({ story_id: i.story_id, reason: i.reason, scores: i.scores as any, total: i.total }));
+      top = all.filter((a) => a.total >= MIN_SCORE).slice(0, 5);
+      titleOf = new Map(sum.items.map((i) => [i.story_id, i.title]));
+    } else {
     const cands = await q<Candidate>(
       `SELECT s.id, coalesce(s.title_ja, s.representative_title) AS title, s.summary_ja AS summary, s.category, s.verification,
               s.first_published_at AS published,
@@ -267,17 +298,32 @@ export async function runBrief(trigger = "manual", opts: { force?: boolean; date
     await q("UPDATE daily_briefs SET candidate_count=$2 WHERE id=$1", [brief.id, cands.length]);
     if (!cands.length) return await finish("empty", "直近24時間に対象となるニュースがありませんでした", 0, "success");
 
-    const { top, all } = await scoreCandidates(client(), cands);
-    const titleOf = new Map(cands.map((c) => [c.id, c.title]));
+    ({ top, all } = await scoreCandidates(client(), cands, MIN_SCORE));
+    titleOf = new Map(cands.map((c) => [c.id, c.title]));
+    }
     await q("UPDATE daily_briefs SET score_summary=$2 WHERE id=$1", [
       brief.id,
-      JSON.stringify({ min_score: MIN_SCORE, items: all.slice(0, 15).map((a) => ({ story_id: a.story_id, title: titleOf.get(a.story_id), total: a.total, reason: a.reason })) }),
+      JSON.stringify({
+        min_score: MIN_SCORE,
+        items: all.slice(0, MAX_CANDIDATES).map((a) => ({ story_id: a.story_id, title: titleOf.get(a.story_id) ?? "", total: a.total, reason: a.reason, scores: a.scores })),
+      } satisfies ScoreSummary),
     ]);
     await q("DELETE FROM brief_items WHERE brief_id=$1", [brief.id]);
     if (!top.length) return await finish("empty", `基準点（${MIN_SCORE}点）以上のニュースがありませんでした`, 0, "success");
 
     // 深掘り分析は並列実行（処理時間を短縮）
-    const results = await Promise.allSettled(top.map((t) => analyzeStory(client(), t.story_id)));
+    const results = await Promise.allSettled(
+      top.map(async (t) => {
+        const prev = prevByStory.get(t.story_id);
+        if (prev) {
+          return {
+            analysis: prev.analysis as BriefAnalysis, headline: prev.headline as string, confidence: prev.confidence,
+            check: { status: prev.check_status, notes: prev.check_note ? [prev.check_note] : [] }, reused: true,
+          };
+        }
+        return analyzeStory(client(), t.story_id);
+      }),
+    );
     let saved = 0;
     for (const [i, r] of results.entries()) {
       const t = top[i];

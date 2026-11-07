@@ -63,3 +63,16 @@ describe("採点結果の読み取り", () => {
     expect(parseScoreItems({ foo: 1 })).toEqual([]);
   });
 });
+
+import { sanitizeLandscape } from "../lib/landscape";
+describe("競争状況分析の根拠検証", () => {
+  it("材料にない根拠IDを除外して件数を数える", () => {
+    const l: any = { headline: "h", overview: "o", competitive_dynamics: "", tech_impact: "", changes_vs_last_week: "",
+      company_moves: [{ company: "A", moves: [{ text: "t", story_ids: [1, 99, 1] }] }],
+      japan_use_cases: [{ title: "u", description: "d", story_ids: [2, "3"] }], watch_next: [], missing_info: [] };
+    const { landscape, removed } = sanitizeLandscape(l, new Set([1, 2, 3]));
+    expect(landscape.company_moves[0].moves[0].story_ids).toEqual([1]);
+    expect(landscape.japan_use_cases[0].story_ids).toEqual([2, 3]);
+    expect(removed).toBe(1);
+  });
+});

@@ -152,6 +152,52 @@ CREATE TABLE IF NOT EXISTS api_usage (
   cost_usd      NUMERIC(12,6),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 管理画面から変更できる設定
+CREATE TABLE IF NOT EXISTS settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- AIモデル比較（公式情報のみ。各値に出典・取得日・条件を持つ）
+CREATE TABLE IF NOT EXISTS ai_models (
+  id           SERIAL PRIMARY KEY,
+  company_slug TEXT,
+  name         TEXT NOT NULL,
+  model_key    TEXT UNIQUE NOT NULL,           -- APIのモデルID など
+  status       TEXT NOT NULL DEFAULT 'published', -- published / hidden
+  note         TEXT,
+  sort_order   INT NOT NULL DEFAULT 100,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS model_facts (
+  id           SERIAL PRIMARY KEY,
+  model_id     INT REFERENCES ai_models(id) ON DELETE CASCADE,
+  field        TEXT NOT NULL,                  -- price_in / price_out / context / max_output / benchmark / feature
+  label        TEXT,                           -- ベンチマーク名など
+  value_num    NUMERIC,
+  value_text   TEXT,
+  unit         TEXT,
+  condition    TEXT,                           -- 測定条件・料金の適用条件
+  source_url   TEXT NOT NULL,
+  source_title TEXT,
+  checked_on   DATE NOT NULL,                  -- 取得日（出典を確認した日）
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 週次などのAI分析（競争状況など）
+CREATE TABLE IF NOT EXISTS analyses (
+  id           SERIAL PRIMARY KEY,
+  kind         TEXT NOT NULL,                  -- landscape
+  period_start TIMESTAMPTZ,
+  period_end   TIMESTAMPTZ,
+  status       TEXT NOT NULL DEFAULT 'published',
+  model        TEXT,
+  payload      JSONB,
+  check_note   TEXT,
+  generated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- 全候補の採点結果（基準点の調整と透明性のため）
 ALTER TABLE daily_briefs ADD COLUMN IF NOT EXISTS score_summary JSONB;
 

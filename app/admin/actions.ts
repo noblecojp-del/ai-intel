@@ -8,6 +8,8 @@ import { runIngest } from "@/lib/ingest";
 import { runSummarize, saveSummary, summarizeStory, SUMMARY_MODEL } from "@/lib/ai";
 import { deleteDemo, seedDemo } from "@/lib/demo";
 import { runBrief } from "@/lib/brief";
+import { setSetting } from "@/lib/settings";
+import { runLandscape } from "@/lib/landscape";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifySession } from "@/lib/auth";
 
@@ -140,4 +142,66 @@ export async function actionBrief() {
   const r = await runBrief("manual", { force: true });
   revalidatePath("/", "layout");
   redirect(`/admin?brief=${encodeURIComponent(r.status)}`);
+}
+
+export async function actionSaveMinScore(f: FormData) {
+  await requireAdmin();
+  const v = Math.max(0, Math.min(100, Math.round(Number(f.get("min_score")))));
+  if (!Number.isFinite(v)) redirect("/admin?tab=brief&error=invalid");
+  await setSetting("brief_min_score", String(v));
+  if (f.get("rebuild") === "1") {
+    const r = await runBrief("manual", { force: true, reuseScores: true });
+    revalidatePath("/", "layout");
+    redirect(`/admin?tab=brief&saved=1&brief=${encodeURIComponent(r.status)}&items=${r.items}`);
+  }
+  redirect("/admin?tab=brief&saved=1");
+}
+
+export async function actionLandscape() {
+  await requireAdmin();
+  const r = await runLandscape("manual");
+  revalidatePath("/compare");
+  redirect(`/admin?landscape=${encodeURIComponent(r.status)}`);
+}
+
+export async function actionAddModel(f: FormData) {
+  await requireAdmin();
+  const name = str(f, "name");
+  const key = str(f, "model_key");
+  if (!name || !key) return;
+  await q("INSERT INTO ai_models (name, model_key, company_slug, sort_order) VALUES ($1,$2,$3,$4) ON CONFLICT (model_key) DO NOTHING",
+    [name, key, str(f, "company_slug") || null, Number(str(f, "sort_order")) || 100]);
+  revalidatePath("/compare");
+  redirect("/admin?tab=models");
+}
+
+export async function actionAddFact(f: FormData) {
+  await requireAdmin();
+  const raw = str(f, "value");
+  const url = str(f, "source_url");
+  const checked = str(f, "checked_on");
+  if (!raw || !/^https?:\/\//.test(url) || !/^\d{4}-\d{2}-\d{2}$/.test(checked)) redirect("/admin?tab=models&error=invalid");
+  const num = Number(raw.replace(/[,$]/g, ""));
+  await q(
+    `INSERT INTO model_facts (model_id, field, label, value_num, value_text, unit, condition, source_url, source_title, checked_on)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+    [Number(f.get("model_id")), str(f, "field"), str(f, "label") || null, Number.isFinite(num) ? num : null, Number.isFinite(num) ? null : raw,
+     str(f, "unit") || null, str(f, "condition") || null, url, new URL(url).hostname, checked],
+  );
+  revalidatePath("/compare");
+  redirect("/admin?tab=models");
+}
+
+export async function actionDeleteFact(f: FormData) {
+  await requireAdmin();
+  await q("DELETE FROM model_facts WHERE id=$1", [Number(f.get("id"))]);
+  revalidatePath("/compare");
+  redirect("/admin?tab=models");
+}
+
+export async function actionToggleModel(f: FormData) {
+  await requireAdmin();
+  await q("UPDATE ai_models SET status = CASE WHEN status='hidden' THEN 'published' ELSE 'hidden' END WHERE id=$1", [Number(f.get("id"))]);
+  revalidatePath("/compare");
+  redirect("/admin?tab=models");
 }

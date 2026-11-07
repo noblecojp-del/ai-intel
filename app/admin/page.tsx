@@ -7,8 +7,11 @@ import { usageSummary } from "@/lib/brief-queries";
 import { jstDate } from "@/lib/brief-logic";
 import { ANALYSIS_MODEL } from "@/lib/brief";
 import { logout } from "./login/actions";
+import { getMinScore } from "@/lib/settings";
+import { MinScoreForm } from "./min-score-form";
+import { listModels } from "@/lib/compare";
 import {
-  actionBrief, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
+  actionBrief, actionSaveMinScore, actionLandscape, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
   actionSummarize, actionToggleSource,
 } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -19,6 +22,8 @@ export const metadata = { title: "管理画面", robots: { index: false } };
 
 const TABS = [
   ["overview", "ジョブ・エラー"],
+  ["brief", "TOP5設定"],
+  ["models", "モデル比較"],
   ["sources", "情報源"],
   ["companies", "追跡企業"],
   ["stories", "要確認の要約"],
@@ -41,7 +46,9 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
         ))}
       </nav>
       <div className="mt-6">
-        {tab === "overview" && <Overview briefResult={sp.brief} />}
+        {tab === "overview" && <Overview briefResult={sp.brief} landscapeResult={sp.landscape} />}
+        {tab === "brief" && <BriefSettings sp={sp} />}
+        {tab === "models" && <ModelsAdmin />}
         {tab === "sources" && <Sources />}
         {tab === "companies" && <Companies error={sp.error} saved={!!sp.saved} />}
         {tab === "stories" && <Stories />}
@@ -53,7 +60,7 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
 const BRIEF_STATUS: Record<string, string> = { published: "公開済み", empty: "該当なし（基準点未満）", failed: "失敗・未更新", running: "生成中", skipped: "公開済みのためスキップ" };
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
-async function Overview({ briefResult }: { briefResult?: string }) {
+async function Overview({ briefResult, landscapeResult }: { briefResult?: string; landscapeResult?: string }) {
   const today = jstDate();
   const [lastIngest] = await q<any>("SELECT * FROM job_runs WHERE job='ingest' ORDER BY id DESC LIMIT 1");
   const [lastSumm] = await q<any>("SELECT * FROM job_runs WHERE job='summarize' ORDER BY id DESC LIMIT 1");
@@ -86,6 +93,7 @@ async function Overview({ briefResult }: { briefResult?: string }) {
 
   return (
     <div className="space-y-8">
+      {landscapeResult && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">競争状況分析：{({ published: "生成しました", skipped: "ニュースが少ないため生成しませんでした", failed: "失敗しました（エラーログを確認）" } as Record<string, string>)[landscapeResult] ?? landscapeResult}</p>}
       {briefResult && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">BEST5の生成結果：{BRIEF_STATUS[briefResult] ?? briefResult}</p>}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {metrics.map(([k, v, sub, warn]) => (
@@ -109,6 +117,7 @@ async function Overview({ briefResult }: { briefResult?: string }) {
       <section className="flex flex-wrap items-center gap-3">
         <form action={actionIngest}><SubmitButton className="btn-primary" pending="収集中…（数分かかります）">今すぐ収集＋要約</SubmitButton></form>
         <form action={actionBrief}><SubmitButton className="btn-primary" pending="BEST5を生成中…（1〜3分）">BEST5を今すぐ生成</SubmitButton></form>
+        <form action={actionLandscape}><SubmitButton className="btn" pending="分析中…（1〜2分）">競争状況分析を生成</SubmitButton></form>
         <form action={actionSummarize}><SubmitButton className="btn" pending="要約中…">未要約を要約（{pending}件）</SubmitButton></form>
         {demo > 0 ? (
           <form action={actionDeleteDemo}><SubmitButton className="btn text-red-700" pending="削除中…">デモデータを削除（{demo}件）</SubmitButton></form>
@@ -125,7 +134,7 @@ async function Overview({ briefResult }: { briefResult?: string }) {
             <tbody>
               {usage.byJob.map((u: any) => (
                 <tr key={u.job + u.model}>
-                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析" } as Record<string, string>)[u.job] ?? u.job}</td>
+                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析" } as Record<string, string>)[u.job] ?? u.job}</td>
                   <td className="td text-xs">{u.model}</td>
                   <td className="td text-right tabular-nums">{u.calls}</td>
                   <td className="td text-right tabular-nums">{Number(u.input_tokens).toLocaleString()}</td>
@@ -149,7 +158,7 @@ async function Overview({ briefResult }: { briefResult?: string }) {
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="td tabular-nums">{r.id}</td>
-                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5" } as Record<string, string>)[r.job] ?? r.job}</td>
+                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析" } as Record<string, string>)[r.job] ?? r.job}</td>
                   <td className="td">{r.trigger}</td>
                   <td className="td"><span className={`badge ${r.status === "success" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : r.status === "partial" ? "bg-amber-50 text-amber-800 ring-amber-200" : r.status === "running" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{r.status}</span></td>
                   <td className="td whitespace-nowrap">{fmtDateTime(r.started_at)}</td>
@@ -167,7 +176,7 @@ async function Overview({ briefResult }: { briefResult?: string }) {
         <div className="card divide-y divide-line">
           {errors.map((e) => (
             <div key={e.id} className="px-4 py-2.5 text-sm">
-              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
+              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
               <div className="mt-0.5 break-all text-red-700">{e.message}</div>
             </div>
           ))}
@@ -284,6 +293,81 @@ async function Stories() {
         <h2 className="mb-2 font-bold">最近のストーリー</h2>
         <ul className="card divide-y divide-line">{recent.map((r) => <Row key={r.id} r={r} />)}</ul>
       </section>
+    </div>
+  );
+}
+
+async function BriefSettings({ sp }: { sp: Record<string, string | undefined> }) {
+  const current = await getMinScore();
+  const [b] = await q<any>("SELECT status, score_summary FROM daily_briefs WHERE brief_date=$1 AND NOT is_demo", [jstDate()]);
+  const items = (b?.score_summary?.items ?? []) as { story_id: number; title: string; total: number; reason: string; scores?: unknown }[];
+  return (
+    <div className="space-y-4">
+      {sp.saved && (
+        <p className="rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          基準点を保存しました。{sp.brief && `本日分を作り直しました（${BRIEF_STATUS[sp.brief] ?? sp.brief}・${sp.items ?? 0}件）。`}
+        </p>
+      )}
+      <MinScoreForm current={current} items={items} action={actionSaveMinScore} hasScores={items.length > 0 && items.every((i) => i.scores)} />
+    </div>
+  );
+}
+
+const FIELD_LABEL: Record<string, string> = {
+  price_in: "入力価格", price_out: "出力価格", context: "コンテキスト長", max_output: "最大出力", benchmark: "ベンチマーク", feature: "機能",
+};
+
+async function ModelsAdmin() {
+  const models = await listModels(true);
+  const companies = await listCompanies(true);
+  const today = jstDate();
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-ink-soft">公開ページ <Link href="/compare#models" className="text-accent">/compare</Link> に表示されます。値は必ず公式ページなど出典を確認してから登録してください（出典URL・取得日は必須）。</p>
+      {models.map((m) => (
+        <details key={m.id} className="card">
+          <summary className="cursor-pointer px-4 py-3 font-medium">
+            {m.name}<span className="ml-2 text-xs text-ink-faint">{m.company_name ?? m.company_slug}・{m.model_key}・{m.facts.length}項目{(m as any).status === "hidden" ? "・非表示" : ""}</span>
+          </summary>
+          <div className="border-t border-line p-4">
+            <table className="w-full text-sm">
+              <tbody>
+                {m.facts.map((f) => (
+                  <tr key={f.id}>
+                    <td className="td whitespace-nowrap">{FIELD_LABEL[f.field] ?? f.field}{f.label ? `：${f.label}` : ""}</td>
+                    <td className="td tabular-nums">{f.value_num ?? f.value_text} {f.unit}</td>
+                    <td className="td text-xs text-ink-soft">{f.condition ?? "—"}</td>
+                    <td className="td text-xs"><a href={f.source_url} target="_blank" rel="noopener noreferrer" className="text-accent">出典</a>・{f.checked_on}</td>
+                    <td className="td"><form action={actionDeleteFact}><input type="hidden" name="id" value={f.id} /><button className="btn text-xs text-red-700">削除</button></form></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <form action={actionAddFact} className="mt-4 grid gap-2 sm:grid-cols-4">
+              <input type="hidden" name="model_id" value={m.id} />
+              <select name="field" className="input">{Object.entries(FIELD_LABEL).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select>
+              <input name="label" placeholder="ベンチマーク名など（任意）" className="input" />
+              <input name="value" placeholder="値（数値または文字）" className="input" required />
+              <input name="unit" placeholder="単位（例：USD/100万トークン）" className="input" />
+              <input name="condition" placeholder="測定条件・適用条件（任意）" className="input sm:col-span-2" />
+              <input name="source_url" type="url" placeholder="出典URL（必須）" className="input" required />
+              <input name="checked_on" type="date" defaultValue={today} className="input" required />
+              <div className="sm:col-span-4 flex gap-2">
+                <button className="btn-primary text-xs">項目を追加</button>
+              </div>
+            </form>
+            <form action={actionToggleModel} className="mt-3"><input type="hidden" name="id" value={m.id} /><button className="btn text-xs">{(m as any).status === "hidden" ? "公開する" : "非表示にする"}</button></form>
+          </div>
+        </details>
+      ))}
+      <form action={actionAddModel} className="card grid gap-3 p-4 sm:grid-cols-4">
+        <h2 className="font-bold sm:col-span-4">モデルを追加</h2>
+        <input name="name" placeholder="表示名（例：Claude Opus 5.5）" className="input" required />
+        <input name="model_key" placeholder="モデルID（例：claude-opus-5-5）" className="input" required />
+        <select name="company_slug" className="input">{companies.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select>
+        <input name="sort_order" type="number" defaultValue={100} className="input" />
+        <div className="sm:col-span-4"><button className="btn-primary">追加</button></div>
+      </form>
     </div>
   );
 }
