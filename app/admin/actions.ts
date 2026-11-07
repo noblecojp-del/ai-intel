@@ -12,6 +12,7 @@ import { setSetting } from "@/lib/settings";
 import { runLandscape } from "@/lib/landscape";
 import { runTagging } from "@/lib/tagging";
 import { runPersonAnalyses, runStatements } from "@/lib/people";
+import { parseChannelInput, runVideos } from "@/lib/youtube";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifySession } from "@/lib/auth";
 
@@ -248,4 +249,37 @@ export async function actionSavePerson(f: FormData) {
   }
   revalidatePath("/people", "layout");
   redirect("/admin?tab=people&saved=1");
+}
+
+export async function actionVideos() {
+  await requireAdmin();
+  const r = await runVideos("manual");
+  revalidatePath("/videos", "layout");
+  redirect(`/admin?tab=channels&videos=${r.added}-${r.summarized}-${r.failed}`);
+}
+
+export async function actionAddChannel(f: FormData) {
+  await requireAdmin();
+  const { channelId, handle } = parseChannelInput(str(f, "input"));
+  const name = str(f, "name");
+  if (!name || (!channelId && !handle)) redirect("/admin?tab=channels&error=invalid");
+  await q(
+    "INSERT INTO video_channels (name, handle, channel_id, company_slug, kind) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (channel_id) DO NOTHING",
+    [name, handle ?? null, channelId ?? null, str(f, "company_slug") || null, str(f, "kind") === "interview" ? "interview" : "official"],
+  );
+  redirect("/admin?tab=channels&saved=1");
+}
+
+export async function actionToggleChannel(f: FormData) {
+  await requireAdmin();
+  await q("UPDATE video_channels SET is_active = NOT is_active WHERE id=$1", [Number(f.get("id"))]);
+  redirect("/admin?tab=channels");
+}
+
+export async function actionSetChannelId(f: FormData) {
+  await requireAdmin();
+  const { channelId } = parseChannelInput(str(f, "channel_id"));
+  if (!channelId) redirect("/admin?tab=channels&error=invalid");
+  await q("UPDATE video_channels SET channel_id=$2, last_status=NULL, last_error=NULL WHERE id=$1", [Number(f.get("id")), channelId]);
+  redirect("/admin?tab=channels&saved=1");
 }

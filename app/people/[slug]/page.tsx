@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPerson, statementsByIds, type PersonAnalysis } from "@/lib/people";
+import { listVideos } from "@/lib/youtube";
 import { KindTag } from "@/components/brief";
 import { fmtDateTime, fmtDay } from "@/components/ui";
 
@@ -24,6 +25,7 @@ export default async function PersonPage({ params }: { params: P }) {
   if (!d) notFound();
   const { person: p, statements, analysis, topics } = d;
   const a: PersonAnalysis | null = analysis?.payload ?? null;
+  const videos = await listVideos({ person: p.slug, limit: 6 });
   const refs = await statementsByIds(a ? [...a.recent_summary, ...a.vs_others].flatMap((x) => x.statement_ids) : []);
   const Refs = ({ ids }: { ids: number[] }) => (
     <>{ids.map((id) => refs.get(id) && (
@@ -72,6 +74,22 @@ export default async function PersonPage({ params }: { params: P }) {
           </p>
         )}
       </section>
+
+      {videos.length > 0 && (
+        <section>
+          <h2 className="text-lg font-bold">出演・関連動画</h2>
+          <ul className="mt-3 grid gap-3 sm:grid-cols-3">
+            {videos.map((v: any) => (
+              <li key={v.id}><Link href={`/videos/${v.id}`} className="group block">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={v.thumbnail_url} alt="" loading="lazy" className="aspect-video w-full rounded bg-slate-100 object-cover" />
+                <div className="mt-1 line-clamp-2 text-sm font-medium group-hover:text-accent">{v.title_ja || v.title}</div>
+                <div className="text-[11px] text-ink-faint">{v.channel_name}</div>
+              </Link></li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <section>
         <h2 className="text-lg font-bold">発言一覧<span className="ml-2 text-sm font-normal text-ink-faint">{statements.length}件</span></h2>

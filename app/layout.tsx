@@ -14,7 +14,7 @@ const NAV = [
   { href: "/companies", label: "企業" },
   { href: "/compare", label: "比較" },
   { href: "/people", label: "人物" },
-  { href: "/roadmap", label: "動画", soon: true },
+  { href: "/videos", label: "動画" },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -35,7 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               {NAV.map((n) => (
                 <Link key={n.href} href={n.href} className="whitespace-nowrap rounded px-2 py-1 text-ink-soft hover:bg-slate-100 hover:text-ink">
                   {n.label}
-                  {n.soon && <span className="ml-1 text-[10px] text-ink-faint">準備中</span>}
+                  
                 </Link>
               ))}
             </nav>

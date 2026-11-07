@@ -4,6 +4,7 @@ import { SCHEMA_SQL } from "./schema";
 import { SEED_COMPANIES, SEED_SOURCES } from "./seed-data";
 import { seedModels } from "./seed-models";
 import { seedPeople } from "./seed-people";
+import { seedChannels } from "./seed-channels";
 
 type Params = unknown[];
 interface Driver {
@@ -86,6 +87,7 @@ async function init(): Promise<Driver> {
   if (n === 0) await seedBase(d);
   await seedModels((sql, p) => d.query(sql, p));
   await seedPeople((sql, p) => d.query(sql, p));
+  await seedChannels((sql, p) => d.query(sql, p));
   return d;
 }
 

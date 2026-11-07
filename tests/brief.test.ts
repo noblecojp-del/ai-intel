@@ -102,3 +102,18 @@ describe("人物の発言", () => {
     expect(mentionsPerson("アルトマン氏が講演", ["アルトマン"])).toBe(true);
   });
 });
+
+import { extractChannelIdFromHtml, parseChannelInput } from "../lib/youtube";
+describe("YouTubeチャンネル", () => {
+  it("URL・ハンドル・IDを読み取る", () => {
+    expect(parseChannelInput("https://www.youtube.com/channel/UCP7jMXSY2xbc3KCAE0MHQ-A")).toEqual({ channelId: "UCP7jMXSY2xbc3KCAE0MHQ-A" });
+    expect(parseChannelInput("https://www.youtube.com/@OpenAI/videos")).toEqual({ handle: "@OpenAI" });
+    expect(parseChannelInput("@anthropic-ai")).toEqual({ handle: "@anthropic-ai" });
+    expect(parseChannelInput("hello")).toEqual({});
+  });
+  it("チャンネルページからIDを取り出す", () => {
+    expect(extractChannelIdFromHtml('<link rel="canonical" href="https://www.youtube.com/channel/UCXZCJLdBC09xxGZ6gcdrc6A">')).toBe("UCXZCJLdBC09xxGZ6gcdrc6A");
+    expect(extractChannelIdFromHtml('{"externalId":"UCrDwWp7EBBv4NwvScIpBDOA"}')).toBe("UCrDwWp7EBBv4NwvScIpBDOA");
+    expect(extractChannelIdFromHtml("<html></html>")).toBeNull();
+  });
+});

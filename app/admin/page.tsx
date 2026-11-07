@@ -11,7 +11,7 @@ import { getMinScore } from "@/lib/settings";
 import { MinScoreForm } from "./min-score-form";
 import { listModels } from "@/lib/compare";
 import {
-  actionBrief, actionSaveMinScore, actionLandscape, actionTagging, actionStatements, actionPersonAnalyses, actionSavePerson, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
+  actionBrief, actionSaveMinScore, actionLandscape, actionTagging, actionStatements, actionPersonAnalyses, actionSavePerson, actionVideos, actionAddChannel, actionToggleChannel, actionSetChannelId, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
   actionSummarize, actionToggleSource,
 } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -25,6 +25,7 @@ const TABS = [
   ["brief", "TOP5設定"],
   ["models", "モデル比較"],
   ["people", "人物"],
+  ["channels", "動画チャンネル"],
   ["sources", "情報源"],
   ["companies", "追跡企業"],
   ["stories", "要確認の要約"],
@@ -51,6 +52,7 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
         {tab === "brief" && <BriefSettings sp={sp} />}
         {tab === "models" && <ModelsAdmin />}
         {tab === "people" && <PeopleAdmin sp={sp} />}
+        {tab === "channels" && <ChannelsAdmin sp={sp} />}
         {tab === "sources" && <Sources />}
         {tab === "companies" && <Companies error={sp.error} saved={!!sp.saved} />}
         {tab === "stories" && <Stories />}
@@ -139,7 +141,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
             <tbody>
               {usage.byJob.map((u: any) => (
                 <tr key={u.job + u.model}>
-                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[u.job] ?? u.job}</td>
+                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析", videos: "動画" } as Record<string, string>)[u.job] ?? u.job}</td>
                   <td className="td text-xs">{u.model}</td>
                   <td className="td text-right tabular-nums">{u.calls}</td>
                   <td className="td text-right tabular-nums">{Number(u.input_tokens).toLocaleString()}</td>
@@ -163,7 +165,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="td tabular-nums">{r.id}</td>
-                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[r.job] ?? r.job}</td>
+                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析", videos: "動画" } as Record<string, string>)[r.job] ?? r.job}</td>
                   <td className="td">{r.trigger}</td>
                   <td className="td"><span className={`badge ${r.status === "success" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : r.status === "partial" ? "bg-amber-50 text-amber-800 ring-amber-200" : r.status === "running" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{r.status}</span></td>
                   <td className="td whitespace-nowrap">{fmtDateTime(r.started_at)}</td>
@@ -181,7 +183,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
         <div className="card divide-y divide-line">
           {errors.map((e) => (
             <div key={e.id} className="px-4 py-2.5 text-sm">
-              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
+              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析", videos: "動画" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
               <div className="mt-0.5 break-all text-red-700">{e.message}</div>
             </div>
           ))}
@@ -423,6 +425,52 @@ async function PeopleAdmin({ sp }: { sp: Record<string, string | undefined> }) {
         <summary className="cursor-pointer px-4 py-3 font-medium">＋ 人物を追加</summary>
         <Form />
       </details>
+    </div>
+  );
+}
+
+async function ChannelsAdmin({ sp }: { sp: Record<string, string | undefined> }) {
+  const channels = await q<any>(`SELECT c.*, (SELECT count(*)::int FROM videos v WHERE v.channel_ref=c.id) AS n FROM video_channels c ORDER BY c.id`);
+  const companies = await listCompanies(true);
+  const msg = sp.videos ? (() => { const [a, s2, f] = sp.videos!.split("-"); return `動画を取得しました：新着 ${a}件・要約 ${s2}件${Number(f) ? `・失敗したチャンネル ${f}件（下の一覧を確認）` : ""}`; })()
+    : sp.saved ? "保存しました。" : sp.error ? "入力内容を確認してください（チャンネルURL、@ハンドル、またはUCから始まるID）。" : null;
+  return (
+    <div className="space-y-5">
+      {msg && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">{msg}</p>}
+      <div className="flex flex-wrap items-center gap-3">
+        <form action={actionVideos}><SubmitButton className="btn-primary" pending="取得・要約中…">動画を今すぐ取得・要約</SubmitButton></form>
+        <span className="text-xs text-ink-faint">毎朝5時台に自動実行。各チャンネルの公開フィード（直近15本）から取得し、字幕は使いません。</span>
+      </div>
+      <div className="card overflow-x-auto">
+        <table className="w-full min-w-[760px]">
+          <thead><tr><th className="th">チャンネル</th><th className="th">種別</th><th className="th">チャンネルID</th><th className="th">状態</th><th className="th">動画</th><th className="th"></th></tr></thead>
+          <tbody>
+            {channels.map((c) => (
+              <tr key={c.id} className={c.is_active ? "" : "opacity-50"}>
+                <td className="td"><div className="font-medium">{c.name}</div><div className="text-xs text-ink-faint">{c.handle ?? ""}</div></td>
+                <td className="td text-xs">{c.kind === "interview" ? "対談番組" : "企業公式"}</td>
+                <td className="td text-xs">
+                  {c.channel_id ? <code>{c.channel_id}</code> : (
+                    <form action={actionSetChannelId} className="flex gap-1"><input type="hidden" name="id" value={c.id} /><input name="channel_id" placeholder="UC… を入力" className="input py-1 text-xs" /><button className="btn text-xs">設定</button></form>
+                  )}
+                  {!c.channel_id && <div className="mt-1 text-ink-faint">未設定（取得時にハンドルから自動で調べます）</div>}
+                </td>
+                <td className="td text-xs">{c.last_status === "error" ? <span className="text-red-700">エラー: {c.last_error}</span> : c.last_status ?? "未取得"}<div className="text-ink-faint">{c.last_fetched_at ? fmtDateTime(c.last_fetched_at) : ""}</div></td>
+                <td className="td text-right tabular-nums">{c.n}</td>
+                <td className="td"><form action={actionToggleChannel}><input type="hidden" name="id" value={c.id} /><button className="btn text-xs">{c.is_active ? "停止" : "再開"}</button></form></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <form action={actionAddChannel} className="card grid gap-3 p-4 sm:grid-cols-4">
+        <h2 className="font-bold sm:col-span-4">チャンネルを追加</h2>
+        <input name="name" placeholder="表示名" className="input" required />
+        <input name="input" placeholder="URL・@ハンドル・UC…のID" className="input sm:col-span-2" required />
+        <select name="kind" className="input"><option value="official">企業公式</option><option value="interview">対談・インタビュー番組</option></select>
+        <select name="company_slug" className="input"><option value="">企業なし</option>{companies.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select>
+        <div className="sm:col-span-4"><button className="btn-primary">追加</button></div>
+      </form>
     </div>
   );
 }

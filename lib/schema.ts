@@ -190,6 +190,41 @@ CREATE TABLE IF NOT EXISTS statements (
 CREATE INDEX IF NOT EXISTS statements_person_idx ON statements(person_id, said_at DESC);
 ALTER TABLE stories ADD COLUMN IF NOT EXISTS people_checked_at TIMESTAMPTZ;
 
+-- YouTube（公式チャンネルの公開フィードのみ。字幕は取得しない）
+CREATE TABLE IF NOT EXISTS video_channels (
+  id              SERIAL PRIMARY KEY,
+  name            TEXT NOT NULL,
+  handle          TEXT,                       -- @OpenAI など
+  channel_id      TEXT UNIQUE,                -- UC... （未解決なら NULL）
+  company_slug    TEXT,
+  kind            TEXT NOT NULL DEFAULT 'official', -- official = 企業公式 / interview = 対談・インタビュー番組
+  is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+  last_fetched_at TIMESTAMPTZ,
+  last_status     TEXT,
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS videos (
+  id            SERIAL PRIMARY KEY,
+  channel_ref   INT REFERENCES video_channels(id) ON DELETE CASCADE,
+  video_id      TEXT UNIQUE NOT NULL,
+  title         TEXT NOT NULL,
+  description   TEXT,                         -- 概要欄（最大2000字）
+  published_at  TIMESTAMPTZ,
+  thumbnail_url TEXT,
+  url           TEXT NOT NULL,
+  is_ai_related BOOLEAN,
+  title_ja      TEXT,
+  summary_ja    TEXT,                         -- タイトルと概要欄のみに基づく要約
+  key_points    JSONB,
+  themes        TEXT[] NOT NULL DEFAULT '{}',
+  people_slugs  TEXT[] NOT NULL DEFAULT '{}',
+  summary_model TEXT,
+  summarized_at TIMESTAMPTZ,
+  fetched_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS videos_published_idx ON videos(published_at DESC);
+
 -- 管理画面から変更できる設定
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
