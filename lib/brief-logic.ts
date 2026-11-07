@@ -27,6 +27,16 @@ export function normalizeScore(raw: RawScore): ScoredStory {
   return { story_id: raw.story_id, reason: String(raw.reason ?? "").trim(), scores, total };
 }
 
+/** 全候補の採点を点数順に（重複は高い方） */
+export function rankAll(raw: RawScore[], validIds: Set<number>): ScoredStory[] {
+  const seen = new Set<number>();
+  return raw
+    .filter((r) => validIds.has(Number(r.story_id)))
+    .map((r) => normalizeScore({ ...r, story_id: Number(r.story_id) }))
+    .sort((a, b) => b.total - a.total)
+    .filter((s) => (seen.has(s.story_id) ? false : (seen.add(s.story_id), true)));
+}
+
 /**
  * 上位を選定。候補に存在しないIDや重複を除き、最低点を満たすものだけを最大 limit 件。
  * 重要ニュースが少ない日は 5 件未満になる（無理に埋めない）。

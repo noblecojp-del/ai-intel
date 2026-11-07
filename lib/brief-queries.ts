@@ -7,6 +7,7 @@ import { jstDate } from "./brief-logic";
 export type Brief = {
   id: number; brief_date: string; status: string; candidate_count: number; model: string | null; note: string | null;
   generated_at: string; published_at: string | null; window_start: string | null; window_end: string | null; is_demo: boolean;
+  score_summary: { min_score: number; items: { story_id: number; title: string; total: number; reason: string }[] } | null;
 };
 
 export type BriefItem = {

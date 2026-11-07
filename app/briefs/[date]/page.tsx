@@ -44,6 +44,23 @@ export default async function BriefPage({ params }: { params: P }) {
         </nav>
       )}
 
+      {brief.status === "empty" && brief.score_summary?.items?.length ? (
+        <section className="mt-6">
+          <h2 className="text-sm font-bold">参考：基準点（{brief.score_summary.min_score}点）に届かなかった上位の候補<span className="ml-2 font-normal text-ink-faint">AIによる評価</span></h2>
+          <ul className="mt-2 divide-y divide-line rounded-lg border border-line bg-white">
+            {brief.score_summary.items.slice(0, 5).map((c) => (
+              <li key={c.story_id} className="flex gap-3 px-4 py-3 text-sm">
+                <span className="w-10 shrink-0 text-right font-bold tabular-nums">{c.total}<span className="text-[10px] font-normal text-ink-faint">点</span></span>
+                <div className="min-w-0">
+                  <Link href={`/news/${c.story_id}`} className="font-medium hover:text-accent">{c.title}</Link>
+                  <p className="mt-0.5 text-xs text-ink-faint">{c.reason}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <div className="mt-8 space-y-14">
         {items.map((it, i) => <Item key={it.id} it={it} sources={sources[i]} />)}
       </div>

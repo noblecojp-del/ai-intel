@@ -85,7 +85,15 @@ export function TopFive({ today, todayBrief, brief, items }: { today: string; to
       {brief?.is_demo && <div className="border-b border-amber-300 bg-amber-50 px-4 py-2 text-sm text-amber-900 sm:px-5"><DemoBadge /> 画面確認用のデモです。実在のニュースではありません。</div>}
 
       {brief && brief.status === "empty" && (
-        <p className="px-4 py-6 text-sm text-ink-soft sm:px-5">{brief.note ?? "基準を満たす重要ニュースはありませんでした。"}（件数を埋めるための掲載はしていません）</p>
+        <div className="px-4 py-5 text-sm text-ink-soft sm:px-5">
+          <p>{brief.note ?? "基準を満たす重要ニュースはありませんでした。"}件数を埋めるための掲載はしていません。</p>
+          {brief.score_summary?.items?.[0] && (
+            <p className="mt-2 text-xs text-ink-faint">
+              最高点は{brief.score_summary.items[0].total}点「{brief.score_summary.items[0].title}」。
+              <Link href={`/briefs/${brief.brief_date}`} className="text-accent hover:underline">候補の評価を見る →</Link>
+            </p>
+          )}
+        </div>
       )}
 
       <ol>

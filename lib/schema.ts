@@ -152,5 +152,8 @@ CREATE TABLE IF NOT EXISTS api_usage (
   cost_usd      NUMERIC(12,6),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 全候補の採点結果（基準点の調整と透明性のため）
+ALTER TABLE daily_briefs ADD COLUMN IF NOT EXISTS score_summary JSONB;
+
 CREATE INDEX IF NOT EXISTS api_usage_created_idx ON api_usage(created_at DESC);
 `;

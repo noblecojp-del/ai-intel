@@ -3,7 +3,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { q } from "./db";
 import { errMsg, finishJob, logJobError, startJob } from "./jobs";
 import { callClaude, toolInput } from "./usage";
-import { decideConfidence, jstDate, SCORE_CRITERIA, selectTop, verifyAnalysis, type Fact, type RawScore, type ScoredStory } from "./brief-logic";
+import { decideConfidence, jstDate, rankAll, SCORE_CRITERIA, selectTop, verifyAnalysis, type Fact, type RawScore, type ScoredStory } from "./brief-logic";
 
 export const ANALYSIS_MODEL = process.env.AI_ANALYSIS_MODEL || "claude-sonnet-5-5";
 const MIN_SCORE = Number(process.env.BRIEF_MIN_SCORE || 60);
@@ -66,7 +66,7 @@ const SCORE_TOOL: Anthropic.Tool = {
   },
 };
 
-async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<ScoredStory[]> {
+async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<{ top: ScoredStory[]; all: ScoredStory[] }> {
   const list = cands
     .map((c) =>
       [
@@ -85,7 +85,8 @@ async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<S
     messages: [{ role: "user", content: `候補は${cands.length}件です。すべて採点してください。\n\n${list}` }],
   });
   const { items } = toolInput<{ items: RawScore[] }>(res);
-  return selectTop(items ?? [], new Set(cands.map((c) => c.id)), MIN_SCORE, 5);
+  const ids = new Set(cands.map((c) => c.id));
+  return { top: selectTop(items ?? [], ids, MIN_SCORE, 5), all: rankAll(items ?? [], ids) };
 }
 
 // ---------- 深掘り分析 ----------
@@ -245,7 +246,12 @@ export async function runBrief(trigger = "manual", opts: { force?: boolean; date
     await q("UPDATE daily_briefs SET candidate_count=$2 WHERE id=$1", [brief.id, cands.length]);
     if (!cands.length) return await finish("empty", "直近24時間に対象となるニュースがありませんでした", 0, "success");
 
-    const top = await scoreCandidates(client(), cands);
+    const { top, all } = await scoreCandidates(client(), cands);
+    const titleOf = new Map(cands.map((c) => [c.id, c.title]));
+    await q("UPDATE daily_briefs SET score_summary=$2 WHERE id=$1", [
+      brief.id,
+      JSON.stringify({ min_score: MIN_SCORE, items: all.slice(0, 15).map((a) => ({ story_id: a.story_id, title: titleOf.get(a.story_id), total: a.total, reason: a.reason })) }),
+    ]);
     await q("DELETE FROM brief_items WHERE brief_id=$1", [brief.id]);
     if (!top.length) return await finish("empty", `基準点（${MIN_SCORE}点）以上のニュースがありませんでした`, 0, "success");
 
