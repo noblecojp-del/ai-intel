@@ -113,7 +113,11 @@ export async function getCompany(slug: string) {
     [c.id],
   );
   const sources = await q<any>("SELECT name, site_url, feed_url, last_status FROM sources WHERE company_id=$1 AND is_active", [c.id]);
-  return { company: c, categories, sources };
+  const people = await q<any>(
+    "SELECT p.slug, p.name, p.role, (SELECT count(*)::int FROM statements s WHERE s.person_id=p.id) AS n FROM people p WHERE p.company_slug=$1 AND p.is_tracked ORDER BY p.sort_order",
+    [slug],
+  );
+  return { company: c, categories, sources, people };
 }
 
 export async function dashboardStats() {

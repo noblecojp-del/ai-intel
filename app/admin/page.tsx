@@ -2,7 +2,7 @@ import Link from "next/link";
 import { q } from "@/lib/db";
 import { listCompanies } from "@/lib/queries";
 import { SUMMARY_MODEL } from "@/lib/ai";
-import { fmtDateTime } from "@/components/ui";
+import { fmtDateTime, fmtDay } from "@/components/ui";
 import { usageSummary } from "@/lib/brief-queries";
 import { jstDate } from "@/lib/brief-logic";
 import { ANALYSIS_MODEL } from "@/lib/brief";
@@ -11,7 +11,7 @@ import { getMinScore } from "@/lib/settings";
 import { MinScoreForm } from "./min-score-form";
 import { listModels } from "@/lib/compare";
 import {
-  actionBrief, actionSaveMinScore, actionLandscape, actionTagging, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
+  actionBrief, actionSaveMinScore, actionLandscape, actionTagging, actionStatements, actionPersonAnalyses, actionSavePerson, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
   actionSummarize, actionToggleSource,
 } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -24,6 +24,7 @@ const TABS = [
   ["overview", "ジョブ・エラー"],
   ["brief", "TOP5設定"],
   ["models", "モデル比較"],
+  ["people", "人物"],
   ["sources", "情報源"],
   ["companies", "追跡企業"],
   ["stories", "要確認の要約"],
@@ -49,6 +50,7 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
         {tab === "overview" && <Overview briefResult={sp.brief} landscapeResult={sp.landscape} taggingResult={sp.tagging} />}
         {tab === "brief" && <BriefSettings sp={sp} />}
         {tab === "models" && <ModelsAdmin />}
+        {tab === "people" && <PeopleAdmin sp={sp} />}
         {tab === "sources" && <Sources />}
         {tab === "companies" && <Companies error={sp.error} saved={!!sp.saved} />}
         {tab === "stories" && <Stories />}
@@ -137,7 +139,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
             <tbody>
               {usage.byJob.map((u: any) => (
                 <tr key={u.job + u.model}>
-                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[u.job] ?? u.job}</td>
+                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[u.job] ?? u.job}</td>
                   <td className="td text-xs">{u.model}</td>
                   <td className="td text-right tabular-nums">{u.calls}</td>
                   <td className="td text-right tabular-nums">{Number(u.input_tokens).toLocaleString()}</td>
@@ -161,7 +163,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="td tabular-nums">{r.id}</td>
-                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[r.job] ?? r.job}</td>
+                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[r.job] ?? r.job}</td>
                   <td className="td">{r.trigger}</td>
                   <td className="td"><span className={`badge ${r.status === "success" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : r.status === "partial" ? "bg-amber-50 text-amber-800 ring-amber-200" : r.status === "running" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{r.status}</span></td>
                   <td className="td whitespace-nowrap">{fmtDateTime(r.started_at)}</td>
@@ -179,7 +181,7 @@ async function Overview({ briefResult, landscapeResult, taggingResult }: { brief
         <div className="card divide-y divide-line">
           {errors.map((e) => (
             <div key={e.id} className="px-4 py-2.5 text-sm">
-              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
+              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け", statements: "発言の抽出", "person-analysis": "人物分析" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
               <div className="mt-0.5 break-all text-red-700">{e.message}</div>
             </div>
           ))}
@@ -371,6 +373,56 @@ async function ModelsAdmin() {
         <input name="sort_order" type="number" defaultValue={100} className="input" />
         <div className="sm:col-span-4"><button className="btn-primary">追加</button></div>
       </form>
+    </div>
+  );
+}
+
+async function PeopleAdmin({ sp }: { sp: Record<string, string | undefined> }) {
+  const people = await q<any>(`SELECT p.*, (SELECT count(*)::int FROM statements s WHERE s.person_id=p.id) AS n FROM people p ORDER BY p.sort_order, p.name`);
+  const companies = await listCompanies(true);
+  const [{ pending }] = await q<any>("SELECT count(*)::int AS pending FROM stories WHERE NOT is_demo AND people_checked_at IS NULL");
+  const msg = sp.extracted ? (() => { const [s, d, c] = sp.extracted!.split("-"); return `発言を抽出しました：候補記事 ${c}件から ${s}件（うち原文と照合できた直接引用 ${d}件）`; })()
+    : sp.analyzed ? (() => { const [p, t] = sp.analyzed!.split("-"); return `人物分析：${t}人中 ${p}人を更新しました`; })()
+    : sp.saved ? "保存しました。" : null;
+  const Form = ({ p }: { p?: any }) => (
+    <form action={actionSavePerson} className="grid gap-3 border-t border-line p-4 sm:grid-cols-2">
+      <input type="hidden" name="id" value={p?.id ?? ""} />
+      {!p && <div><label className="label">スラッグ（URL用・英小文字）</label><input name="slug" className="input" required placeholder="例: mustafa-suleyman" /></div>}
+      <div><label className="label">名前</label><input name="name" defaultValue={p?.name} className="input" required /></div>
+      <div><label className="label">日本語表記</label><input name="name_ja" defaultValue={p?.name_ja ?? ""} className="input" /></div>
+      <div><label className="label">役職</label><input name="role" defaultValue={p?.role ?? ""} className="input" /></div>
+      <div><label className="label">役職の確認日</label><input name="role_checked_on" type="date" defaultValue={p?.role_checked_on ? fmtDay(p.role_checked_on) : jstDate()} className="input" /></div>
+      <div><label className="label">所属企業</label><select name="company_slug" defaultValue={p?.company_slug ?? ""} className="input"><option value="">なし</option>{companies.map((c) => <option key={c.slug} value={c.slug}>{c.name}</option>)}</select></div>
+      <div className="sm:col-span-2"><label className="label">記事から探す表記（カンマ区切り）</label><input name="aliases" defaultValue={p?.aliases?.join(", ")} className="input" /></div>
+      <div><label className="label">表示順</label><input name="sort_order" type="number" defaultValue={p?.sort_order ?? 100} className="input" /></div>
+      <label className="flex items-end gap-2 pb-2 text-sm"><input type="checkbox" name="is_tracked" defaultChecked={p?.is_tracked ?? true} />追跡する</label>
+      <div className="sm:col-span-2"><button className="btn-primary">保存</button></div>
+    </form>
+  );
+  return (
+    <div className="space-y-4">
+      {msg && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">{msg}</p>}
+      <div className="flex flex-wrap gap-3">
+        <form action={actionStatements}><SubmitButton className="btn-primary" pending="抽出中…">発言を抽出（未確認の記事 {pending}件）</SubmitButton></form>
+        <form action={actionPersonAnalyses}><SubmitButton className="btn" pending="分析中…（1人あたり約30秒）">今週発言のあった人物を分析</SubmitButton></form>
+      </div>
+      <p className="text-xs text-ink-faint">発言の抽出は毎日の収集のあとに自動で、人物分析は毎週月曜に自動で実行されます。人物分析は1人あたり約5円です。</p>
+      {people.map((p) => (
+        <details key={p.id} className="card">
+          <summary className="cursor-pointer px-4 py-3 font-medium">
+            {p.name}<span className="ml-2 text-xs text-ink-faint">{p.role}・発言 {p.n}件{p.is_tracked ? "" : "・追跡停止"}</span>
+          </summary>
+          <Form p={p} />
+          <form action={actionPersonAnalyses} className="border-t border-line px-4 py-3">
+            <input type="hidden" name="slug" value={p.slug} />
+            <SubmitButton className="btn text-xs" pending="分析中…">この人物の分析を今すぐ生成</SubmitButton>
+          </form>
+        </details>
+      ))}
+      <details className="card" open={people.length === 0}>
+        <summary className="cursor-pointer px-4 py-3 font-medium">＋ 人物を追加</summary>
+        <Form />
+      </details>
     </div>
   );
 }

@@ -161,6 +161,35 @@ CREATE TABLE IF NOT EXISTS story_mentions (
   PRIMARY KEY (story_id, company_id)
 );
 
+-- 人物（CEO・研究者など）と発言
+CREATE TABLE IF NOT EXISTS people (
+  id           SERIAL PRIMARY KEY,
+  slug         TEXT UNIQUE NOT NULL,
+  name         TEXT NOT NULL,
+  name_ja      TEXT,
+  role         TEXT,                       -- 役職（確認日を role_checked_on に記録）
+  role_checked_on DATE,
+  company_slug TEXT,
+  aliases      TEXT[] NOT NULL DEFAULT '{}', -- 記事から探すための表記
+  is_tracked   BOOLEAN NOT NULL DEFAULT TRUE,
+  sort_order   INT NOT NULL DEFAULT 100,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE TABLE IF NOT EXISTS statements (
+  id          SERIAL PRIMARY KEY,
+  person_id   INT REFERENCES people(id) ON DELETE CASCADE,
+  story_id    INT REFERENCES stories(id) ON DELETE CASCADE,
+  kind        TEXT NOT NULL,               -- direct_quote（原文に引用として確認） / reported（報道による要約・言い換え）
+  quote       TEXT,                        -- 原文の引用（direct_quote のみ。原文と照合済み）
+  summary_ja  TEXT NOT NULL,               -- 発言内容の日本語要約
+  topic       TEXT,
+  said_at     TIMESTAMPTZ,                 -- 記事の発表日時（発言日そのものではない場合がある）
+  model       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS statements_person_idx ON statements(person_id, said_at DESC);
+ALTER TABLE stories ADD COLUMN IF NOT EXISTS people_checked_at TIMESTAMPTZ;
+
 -- 管理画面から変更できる設定
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,

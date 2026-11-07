@@ -13,7 +13,8 @@ const NAV = [
   { href: "/news", label: "ニュース" },
   { href: "/companies", label: "企業" },
   { href: "/compare", label: "比較" },
-  { href: "/roadmap", label: "人物・動画", soon: true },
+  { href: "/people", label: "人物" },
+  { href: "/roadmap", label: "動画", soon: true },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

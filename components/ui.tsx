@@ -9,6 +9,13 @@ export function fmtDateTime(v: string | Date | null | undefined) {
   return d.toLocaleString("ja-JP", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
 
+/** DATE 列（Date または文字列）を YYYY-MM-DD に */
+export function fmtDay(v: string | Date | null | undefined) {
+  if (!v) return "";
+  if (v instanceof Date) return new Date(v.getTime() + 9 * 36e5).toISOString().slice(0, 10);
+  return String(v).slice(0, 10);
+}
+
 export function fmtRelative(v: string | Date | null | undefined) {
   if (!v) return "日時不明";
   const diff = (Date.now() - new Date(v).getTime()) / 60000;

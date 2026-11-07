@@ -16,7 +16,7 @@ export default async function CompanyPage({ params }: { params: P }) {
   const { slug } = await params;
   const data = await getCompany(slug);
   if (!data) notFound();
-  const { company: c, categories, sources } = data;
+  const { company: c, categories, sources, people } = data;
   const [latest, products, research, business, all] = await Promise.all([
     listStories({ company: slug, limit: 8 }),
     listStories({ company: slug, category: "モデル・製品発表", limit: 5 }),
@@ -58,6 +58,16 @@ export default async function CompanyPage({ params }: { params: P }) {
         </div>
 
         <aside className="space-y-8">
+          {people.length > 0 && (
+            <section>
+              <SectionTitle href="/people" more="人物一覧">経営幹部・主要人物</SectionTitle>
+              <ul className="mt-2 divide-y divide-line text-sm">
+                {people.map((p: any) => (
+                  <li key={p.slug}><Link href={`/people/${p.slug}`} className="block py-2 hover:text-accent"><span className="font-medium">{p.name}</span><span className="ml-2 text-xs text-ink-faint">{p.role}・発言 {p.n}件</span></Link></li>
+                ))}
+              </ul>
+            </section>
+          )}
           <section>
             <SectionTitle>決算・投資家向け情報</SectionTitle>
             <p className="mt-3 text-sm text-ink-soft">

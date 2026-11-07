@@ -86,3 +86,19 @@ describe("企業の紐付け判定", () => {
     expect(decideTags(undefined, allowed)).toEqual({ subjects: [], mentioned: [] });
   });
 });
+
+import { mentionsPerson, quoteFoundIn } from "../lib/people";
+describe("人物の発言", () => {
+  it("直接引用は原文に含まれる場合だけ認める（引用符・空白・末尾句読点の違いは許容）", () => {
+    const src = `Altman said, “We are going to build a lot more compute than people expect.” He added more.`;
+    expect(quoteFoundIn('"We are going to build a lot more compute than people expect"', src)).toBe(true);
+    expect(quoteFoundIn("We are going to build   a lot more compute than people expect.", src)).toBe(true);
+    expect(quoteFoundIn("We will build ten times more compute", src)).toBe(false);
+    expect(quoteFoundIn("compute", src)).toBe(false); // 短すぎる
+  });
+  it("人物名の表記で記事をふるい分け（部分一致しない）", () => {
+    expect(mentionsPerson("Sam Altman says AGI is near", ["Sam Altman", "Altman"])).toBe(true);
+    expect(mentionsPerson("Altmanized workflows", ["Altman"])).toBe(false);
+    expect(mentionsPerson("アルトマン氏が講演", ["アルトマン"])).toBe(true);
+  });
+});

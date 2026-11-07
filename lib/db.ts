@@ -3,6 +3,7 @@
 import { SCHEMA_SQL } from "./schema";
 import { SEED_COMPANIES, SEED_SOURCES } from "./seed-data";
 import { seedModels } from "./seed-models";
+import { seedPeople } from "./seed-people";
 
 type Params = unknown[];
 interface Driver {
@@ -84,6 +85,7 @@ async function init(): Promise<Driver> {
   const [{ n }] = await d.query<{ n: number }>("SELECT count(*)::int AS n FROM companies");
   if (n === 0) await seedBase(d);
   await seedModels((sql, p) => d.query(sql, p));
+  await seedPeople((sql, p) => d.query(sql, p));
   return d;
 }
 

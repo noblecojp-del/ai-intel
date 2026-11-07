@@ -11,6 +11,7 @@ import { runBrief } from "@/lib/brief";
 import { setSetting } from "@/lib/settings";
 import { runLandscape } from "@/lib/landscape";
 import { runTagging } from "@/lib/tagging";
+import { runPersonAnalyses, runStatements } from "@/lib/people";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifySession } from "@/lib/auth";
 
@@ -213,4 +214,38 @@ export async function actionTagging() {
   const r = await runTagging("manual", 200);
   revalidatePath("/", "layout");
   redirect(`/admin?tagging=${r.done}-${r.changed}-${r.target}`);
+}
+
+export async function actionStatements() {
+  await requireAdmin();
+  const r = await runStatements("manual", 300);
+  revalidatePath("/people", "layout");
+  redirect(`/admin?tab=people&extracted=${r.saved}-${r.direct_quotes}-${r.candidates}`);
+}
+
+export async function actionPersonAnalyses(f: FormData) {
+  await requireAdmin();
+  const slug = str(f, "slug") || undefined;
+  const r = await runPersonAnalyses("manual", slug);
+  revalidatePath("/people", "layout");
+  redirect(`/admin?tab=people&analyzed=${r.published}-${r.target}`);
+}
+
+export async function actionSavePerson(f: FormData) {
+  await requireAdmin();
+  const id = Number(str(f, "id")) || null;
+  const aliases = str(f, "aliases").split(/[,、\n]/).map((s) => s.trim()).filter(Boolean);
+  const vals = [str(f, "name"), str(f, "name_ja") || null, str(f, "role") || null, str(f, "role_checked_on") || null,
+    str(f, "company_slug") || null, aliases, f.get("is_tracked") === "on", Number(str(f, "sort_order")) || 100];
+  if (id) {
+    await q("UPDATE people SET name=$1, name_ja=$2, role=$3, role_checked_on=$4, company_slug=$5, aliases=$6, is_tracked=$7, sort_order=$8 WHERE id=$9", [...vals, id]);
+  } else {
+    const slug = str(f, "slug").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+    if (!slug || !vals[0]) redirect("/admin?tab=people&error=invalid");
+    await q("INSERT INTO people (name, name_ja, role, role_checked_on, company_slug, aliases, is_tracked, sort_order, slug) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (slug) DO NOTHING", [...vals, slug]);
+    // 新しい人物を過去記事からも探せるよう、確認済みフラグをリセット
+    await q("UPDATE stories SET people_checked_at=NULL WHERE coalesce(first_published_at, created_at) > now() - interval '60 days'");
+  }
+  revalidatePath("/people", "layout");
+  redirect("/admin?tab=people&saved=1");
 }
