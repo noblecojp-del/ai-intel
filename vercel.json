@@ -22,10 +22,6 @@
     {
       "path": "/api/cron/videos",
       "schedule": "0 20 * * *"
-    },
-    {
-      "path": "/api/cron/videos?trial=1",
-      "schedule": "21 11 * * *"
     }
   ]
 }
