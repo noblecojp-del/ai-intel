@@ -10,6 +10,15 @@ export type CompanyCompare = {
 
 const at = "coalesce(s.first_published_at, s.created_at)";
 
+/**
+ * 比較できる期間の開始点。収集は「初回取得時点から30日前まで」の記事を取り込むため、
+ * 最初の取得日時 − 30日 より前の期間は件数0でも「データなし」であって「減った」わけではない。
+ */
+export async function coverageStart(): Promise<Date | null> {
+  const [r] = await q<{ first: string | null }>("SELECT min(fetched_at) AS first FROM articles WHERE NOT is_demo");
+  return r?.first ? new Date(new Date(r.first).getTime() - 30 * 864e5) : null;
+}
+
 export async function companyComparison(): Promise<CompanyCompare[]> {
   const rows = await q<any>(`
     SELECT c.id, c.slug, c.name, c.is_listed, c.sort_order,

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { companyComparison, companyTimeline, latestAnalysis, listModels, storiesByIds, type ModelRow } from "@/lib/compare";
+import { companyComparison, companyTimeline, coverageStart, latestAnalysis, listModels, storiesByIds, type ModelRow } from "@/lib/compare";
 import type { Landscape } from "@/lib/landscape";
 import { KindTag } from "@/components/brief";
 import { fmtDateTime } from "@/components/ui";
@@ -9,7 +9,8 @@ export const metadata = { title: "企業・モデル比較" };
 
 const fmtNum = (n: number) => n.toLocaleString("ja-JP");
 
-function Delta({ now, prev }: { now: number; prev: number }) {
+function Delta({ now, prev, ok = true }: { now: number; prev: number; ok?: boolean }) {
+  if (!ok) return <span className="text-[10px] text-ink-faint">蓄積中</span>;
   const d = now - prev;
   if (prev === 0 && now === 0) return <span className="text-ink-faint">—</span>;
   const cls = d > 0 ? "text-emerald-700" : d < 0 ? "text-red-700" : "text-ink-faint";
@@ -17,7 +18,10 @@ function Delta({ now, prev }: { now: number; prev: number }) {
 }
 
 export default async function ComparePage() {
-  const [companies, timeline, models, analysis] = await Promise.all([companyComparison(), companyTimeline(90), listModels(), latestAnalysis()]);
+  const [companies, timeline, models, analysis, cov] = await Promise.all([companyComparison(), companyTimeline(90), listModels(), latestAnalysis(), coverageStart()]);
+  // 前週（7〜14日前）・前月（30〜60日前）の期間がデータの取得範囲に入っているか
+  const okWeek = !!cov && cov.getTime() <= Date.now() - 14 * 864e5;
+  const okMonth = !!cov && cov.getTime() <= Date.now() - 60 * 864e5;
   const land: Landscape | null = analysis?.payload ?? null;
   const refIds = land ? [...land.company_moves.flatMap((c) => c.moves.flatMap((m) => m.story_ids)), ...land.japan_use_cases.flatMap((u) => u.story_ids)] : [];
   const refs = await storiesByIds([...new Set(refIds)]);
@@ -98,7 +102,9 @@ export default async function ComparePage() {
       {/* 2. 企業比較 */}
       <section id="companies" className="scroll-mt-20">
         <h2 className="text-lg font-bold">企業比較</h2>
-        <p className="mt-1 text-xs text-ink-faint">当サイトが収集したニュースの件数です（{fmtDateTime(new Date())} 時点）。各社の情報源の数や発信頻度の違いを含むため、企業の評価やランキングではありません。</p>
+        <p className="mt-1 text-xs text-ink-faint">当サイトが収集したニュースの件数です（{fmtDateTime(new Date())} 時点）。各社の情報源の数や発信頻度の違いを含むため、企業の評価やランキングではありません。
+          {(!okWeek || !okMonth) && <>「蓄積中」は比較する前の期間のデータがまだ十分に集まっていないことを示します（{cov ? `${cov.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}以降のデータ` : "データなし"}）。</>}
+          企業の紐付けは記事中のキーワード一致によるため、他社に言及しただけの記事が含まれる場合があります。</p>
         <div className="mt-3 overflow-x-auto rounded-lg border border-line bg-white">
           <table className="w-full min-w-[760px] text-sm">
             <thead>
@@ -115,8 +121,8 @@ export default async function ComparePage() {
               {companies.map((c) => (
                 <tr key={c.id}>
                   <td className="td whitespace-nowrap"><Link href={`/companies/${c.slug}`} className="font-bold hover:text-accent">{c.name}</Link><div className="text-[11px] text-ink-faint">{c.is_listed ? "上場" : "非上場"}</div></td>
-                  <td className="td text-right tabular-nums"><div className="font-bold">{c.n7}</div><Delta now={c.n7} prev={c.prev7} /></td>
-                  <td className="td text-right tabular-nums"><div className="font-bold">{c.n30}</div><Delta now={c.n30} prev={c.prev30} /></td>
+                  <td className="td text-right tabular-nums"><div className="font-bold">{c.n7}</div><Delta now={c.n7} prev={c.prev7} ok={okWeek} /></td>
+                  <td className="td text-right tabular-nums"><div className="font-bold">{c.n30}</div><Delta now={c.n30} prev={c.prev30} ok={okMonth} /></td>
                   <td className="td text-right tabular-nums">{c.official30}</td>
                   <td className="td">
                     <div className="flex flex-wrap gap-1">
