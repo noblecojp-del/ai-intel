@@ -11,7 +11,7 @@ import { getMinScore } from "@/lib/settings";
 import { MinScoreForm } from "./min-score-form";
 import { listModels } from "@/lib/compare";
 import {
-  actionBrief, actionSaveMinScore, actionLandscape, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
+  actionBrief, actionSaveMinScore, actionLandscape, actionTagging, actionAddModel, actionAddFact, actionDeleteFact, actionToggleModel, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
   actionSummarize, actionToggleSource,
 } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -46,7 +46,7 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
         ))}
       </nav>
       <div className="mt-6">
-        {tab === "overview" && <Overview briefResult={sp.brief} landscapeResult={sp.landscape} />}
+        {tab === "overview" && <Overview briefResult={sp.brief} landscapeResult={sp.landscape} taggingResult={sp.tagging} />}
         {tab === "brief" && <BriefSettings sp={sp} />}
         {tab === "models" && <ModelsAdmin />}
         {tab === "sources" && <Sources />}
@@ -60,7 +60,7 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
 const BRIEF_STATUS: Record<string, string> = { published: "公開済み", empty: "該当なし（基準点未満）", failed: "失敗・未更新", running: "生成中", skipped: "公開済みのためスキップ" };
 const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
 
-async function Overview({ briefResult, landscapeResult }: { briefResult?: string; landscapeResult?: string }) {
+async function Overview({ briefResult, landscapeResult, taggingResult }: { briefResult?: string; landscapeResult?: string; taggingResult?: string }) {
   const today = jstDate();
   const [lastIngest] = await q<any>("SELECT * FROM job_runs WHERE job='ingest' ORDER BY id DESC LIMIT 1");
   const [lastSumm] = await q<any>("SELECT * FROM job_runs WHERE job='summarize' ORDER BY id DESC LIMIT 1");
@@ -68,6 +68,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
     "SELECT b.*, (SELECT count(*)::int FROM brief_items bi WHERE bi.brief_id=b.id) AS n FROM daily_briefs b WHERE brief_date=$1 AND NOT is_demo",
     [today],
   );
+  const [{ untagged }] = await q<any>("SELECT count(*)::int AS untagged FROM stories WHERE NOT is_demo AND tagged_at IS NULL");
   const [{ errors24 }] = await q<any>("SELECT count(*)::int AS errors24 FROM job_errors WHERE created_at > now() - interval '24 hours'");
   const usage = await usageSummary();
   const ingestStale = !lastIngest || Date.now() - new Date(lastIngest.started_at).getTime() > 26 * 36e5;
@@ -93,6 +94,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
 
   return (
     <div className="space-y-8">
+      {taggingResult && (() => { const [d, c, t] = taggingResult.split("-"); return <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">企業の紐付け：{t}件中 {d}件を判定し、{c}件の紐付けを修正しました。</p>; })()}
       {landscapeResult && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">競争状況分析：{({ published: "生成しました", skipped: "ニュースが少ないため生成しませんでした", failed: "失敗しました（エラーログを確認）" } as Record<string, string>)[landscapeResult] ?? landscapeResult}</p>}
       {briefResult && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">BEST5の生成結果：{BRIEF_STATUS[briefResult] ?? briefResult}</p>}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -117,6 +119,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
       <section className="flex flex-wrap items-center gap-3">
         <form action={actionIngest}><SubmitButton className="btn-primary" pending="収集中…（数分かかります）">今すぐ収集＋要約</SubmitButton></form>
         <form action={actionBrief}><SubmitButton className="btn-primary" pending="BEST5を生成中…（1〜3分）">BEST5を今すぐ生成</SubmitButton></form>
+        <form action={actionTagging}><SubmitButton className="btn" pending="判定中…">企業の紐付けをAIで判定（未判定 {untagged}件）</SubmitButton></form>
         <form action={actionLandscape}><SubmitButton className="btn" pending="分析中…（1〜2分）">競争状況分析を生成</SubmitButton></form>
         <form action={actionSummarize}><SubmitButton className="btn" pending="要約中…">未要約を要約（{pending}件）</SubmitButton></form>
         {demo > 0 ? (
@@ -134,7 +137,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
             <tbody>
               {usage.byJob.map((u: any) => (
                 <tr key={u.job + u.model}>
-                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析" } as Record<string, string>)[u.job] ?? u.job}</td>
+                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[u.job] ?? u.job}</td>
                   <td className="td text-xs">{u.model}</td>
                   <td className="td text-right tabular-nums">{u.calls}</td>
                   <td className="td text-right tabular-nums">{Number(u.input_tokens).toLocaleString()}</td>
@@ -158,7 +161,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="td tabular-nums">{r.id}</td>
-                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析" } as Record<string, string>)[r.job] ?? r.job}</td>
+                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[r.job] ?? r.job}</td>
                   <td className="td">{r.trigger}</td>
                   <td className="td"><span className={`badge ${r.status === "success" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : r.status === "partial" ? "bg-amber-50 text-amber-800 ring-amber-200" : r.status === "running" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{r.status}</span></td>
                   <td className="td whitespace-nowrap">{fmtDateTime(r.started_at)}</td>
@@ -176,7 +179,7 @@ async function Overview({ briefResult, landscapeResult }: { briefResult?: string
         <div className="card divide-y divide-line">
           {errors.map((e) => (
             <div key={e.id} className="px-4 py-2.5 text-sm">
-              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
+              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5", landscape: "競争状況分析", tagging: "企業の紐付け" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
               <div className="mt-0.5 break-all text-red-700">{e.message}</div>
             </div>
           ))}

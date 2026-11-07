@@ -17,7 +17,7 @@ export default async function StoryPage({ params }: { params: P }) {
   if (!Number.isInteger(id)) notFound();
   const data = await getStory(id);
   if (!data) notFound();
-  const { story: s, articles, versions } = data;
+  const { story: s, articles, versions, mentions } = data;
   const related = await relatedStories(id);
   const points: string[] = Array.isArray(s.key_points) ? s.key_points : [];
 
@@ -38,6 +38,11 @@ export default async function StoryPage({ params }: { params: P }) {
           {s.companies.length > 0 && (
             <div><dt className="inline text-ink-faint">関連企業 </dt><dd className="inline space-x-2">
               {s.companies.map((c: any) => <Link key={c.slug} href={`/companies/${c.slug}`} className="font-medium text-accent hover:underline">{c.name}</Link>)}
+            </dd></div>
+          )}
+          {mentions.length > 0 && (
+            <div><dt className="inline text-ink-faint">言及 </dt><dd className="inline space-x-2">
+              {mentions.map((c) => <Link key={c.slug} href={`/companies/${c.slug}`} className="text-ink-soft hover:text-accent">{c.name}</Link>)}
             </dd></div>
           )}
         </dl>

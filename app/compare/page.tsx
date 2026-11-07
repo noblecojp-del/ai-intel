@@ -104,7 +104,7 @@ export default async function ComparePage() {
         <h2 className="text-lg font-bold">企業比較</h2>
         <p className="mt-1 text-xs text-ink-faint">当サイトが収集したニュースの件数です（{fmtDateTime(new Date())} 時点）。各社の情報源の数や発信頻度の違いを含むため、企業の評価やランキングではありません。
           {(!okWeek || !okMonth) && <>「蓄積中」は比較する前の期間のデータがまだ十分に集まっていないことを示します（{cov ? `${cov.toLocaleDateString("ja-JP", { timeZone: "Asia/Tokyo" })}以降のデータ` : "データなし"}）。</>}
-          企業の紐付けは記事中のキーワード一致によるため、他社に言及しただけの記事が含まれる場合があります。</p>
+          企業の紐付けはAIが「主役の企業」を判定したもので、他社に言及しただけの記事は数えていません（判定前の新着は一時的に含まれることがあります）。</p>
         <div className="mt-3 overflow-x-auto rounded-lg border border-line bg-white">
           <table className="w-full min-w-[760px] text-sm">
             <thead>

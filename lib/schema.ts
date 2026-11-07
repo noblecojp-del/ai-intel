@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS api_usage (
   cost_usd      NUMERIC(12,6),
   created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+-- 企業の紐付け：story_companies は「主役の企業」、言及されただけの企業は story_mentions に分ける
+ALTER TABLE stories ADD COLUMN IF NOT EXISTS tagged_at TIMESTAMPTZ;      -- AIで紐付けを判定した日時（NULL＝未判定）
+ALTER TABLE stories ADD COLUMN IF NOT EXISTS tag_model TEXT;
+CREATE TABLE IF NOT EXISTS story_mentions (
+  story_id   INT REFERENCES stories(id) ON DELETE CASCADE,
+  company_id INT REFERENCES companies(id) ON DELETE CASCADE,
+  PRIMARY KEY (story_id, company_id)
+);
+
 -- 管理画面から変更できる設定
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,

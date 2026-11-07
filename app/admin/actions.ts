@@ -10,6 +10,7 @@ import { deleteDemo, seedDemo } from "@/lib/demo";
 import { runBrief } from "@/lib/brief";
 import { setSetting } from "@/lib/settings";
 import { runLandscape } from "@/lib/landscape";
+import { runTagging } from "@/lib/tagging";
 import { cookies } from "next/headers";
 import { ADMIN_COOKIE, verifySession } from "@/lib/auth";
 
@@ -26,6 +27,7 @@ export async function actionIngest() {
   await requireAdmin();
   await runIngest("manual");
   await runSummarize("manual");
+  await runTagging("manual", 100);
   revalidatePath("/", "layout");
 }
 
@@ -204,4 +206,11 @@ export async function actionToggleModel(f: FormData) {
   await q("UPDATE ai_models SET status = CASE WHEN status='hidden' THEN 'published' ELSE 'hidden' END WHERE id=$1", [Number(f.get("id"))]);
   revalidatePath("/compare");
   redirect("/admin?tab=models");
+}
+
+export async function actionTagging() {
+  await requireAdmin();
+  const r = await runTagging("manual", 200);
+  revalidatePath("/", "layout");
+  redirect(`/admin?tagging=${r.done}-${r.changed}-${r.target}`);
 }

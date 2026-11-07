@@ -76,3 +76,13 @@ describe("競争状況分析の根拠検証", () => {
     expect(removed).toBe(1);
   });
 });
+
+import { decideTags } from "../lib/tagging";
+describe("企業の紐付け判定", () => {
+  const allowed = new Set(["openai", "anthropic", "nvidia"]);
+  it("追跡外を捨て、公式の発信元は主役、両方にある企業は主役のみ", () => {
+    expect(decideTags({ subjects: ["OpenAI", "perplexity"], mentioned: ["anthropic", "openai"] }, allowed)).toEqual({ subjects: ["openai"], mentioned: ["anthropic"] });
+    expect(decideTags({ subjects: [], mentioned: ["nvidia"] }, allowed, "openai")).toEqual({ subjects: ["openai"], mentioned: ["nvidia"] });
+    expect(decideTags(undefined, allowed)).toEqual({ subjects: [], mentioned: [] });
+  });
+});

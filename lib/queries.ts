@@ -68,7 +68,11 @@ export async function getStory(id: number) {
     [id],
   );
   const versions = await q<any>("SELECT version, model, author, created_at FROM summary_versions WHERE story_id=$1 ORDER BY version DESC", [id]);
-  return { story, articles, versions };
+  const mentions = await q<{ slug: string; name: string }>(
+    "SELECT c.slug, c.name FROM story_mentions m JOIN companies c ON c.id=m.company_id WHERE m.story_id=$1 ORDER BY c.sort_order",
+    [id],
+  );
+  return { story, articles, versions, mentions };
 }
 
 export async function relatedStories(id: number, limit = 5): Promise<StoryRow[]> {
