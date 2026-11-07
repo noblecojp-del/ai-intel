@@ -3,8 +3,12 @@ import { q } from "@/lib/db";
 import { listCompanies } from "@/lib/queries";
 import { SUMMARY_MODEL } from "@/lib/ai";
 import { fmtDateTime } from "@/components/ui";
+import { usageSummary } from "@/lib/brief-queries";
+import { jstDate } from "@/lib/brief-logic";
+import { ANALYSIS_MODEL } from "@/lib/brief";
+import { logout } from "./login/actions";
 import {
-  actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
+  actionBrief, actionAddSource, actionDeleteDemo, actionDeleteSource, actionIngest, actionSaveCompany, actionSeedDemo,
   actionSummarize, actionToggleSource,
 } from "./actions";
 import { SubmitButton } from "./submit-button";
@@ -27,14 +31,17 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
   const tab = sp.tab ?? "overview";
   return (
     <div>
-      <h1 className="text-xl font-bold">管理画面</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-bold">管理画面</h1>
+        <form action={logout}><button className="btn text-xs">ログアウト</button></form>
+      </div>
       <nav className="mt-4 flex gap-1 overflow-x-auto border-b border-line text-sm">
         {TABS.map(([k, label]) => (
           <Link key={k} href={`/admin?tab=${k}`} className={`whitespace-nowrap px-3 py-2 ${tab === k ? "border-b-2 border-ink font-bold" : "text-ink-soft hover:text-ink"}`}>{label}</Link>
         ))}
       </nav>
       <div className="mt-6">
-        {tab === "overview" && <Overview />}
+        {tab === "overview" && <Overview briefResult={sp.brief} />}
         {tab === "sources" && <Sources />}
         {tab === "companies" && <Companies error={sp.error} saved={!!sp.saved} />}
         {tab === "stories" && <Stories />}
@@ -43,7 +50,29 @@ export default async function AdminPage({ searchParams }: { searchParams: SP }) 
   );
 }
 
-async function Overview() {
+const BRIEF_STATUS: Record<string, string> = { published: "公開済み", empty: "該当なし（基準点未満）", failed: "失敗・未更新", running: "生成中", skipped: "公開済みのためスキップ" };
+const usd = (n: number) => `$${n.toFixed(n < 1 ? 3 : 2)}`;
+
+async function Overview({ briefResult }: { briefResult?: string }) {
+  const today = jstDate();
+  const [lastIngest] = await q<any>("SELECT * FROM job_runs WHERE job='ingest' ORDER BY id DESC LIMIT 1");
+  const [lastSumm] = await q<any>("SELECT * FROM job_runs WHERE job='summarize' ORDER BY id DESC LIMIT 1");
+  const [todayBrief] = await q<any>(
+    "SELECT b.*, (SELECT count(*)::int FROM brief_items bi WHERE bi.brief_id=b.id) AS n FROM daily_briefs b WHERE brief_date=$1 AND NOT is_demo",
+    [today],
+  );
+  const [{ errors24 }] = await q<any>("SELECT count(*)::int AS errors24 FROM job_errors WHERE created_at > now() - interval '24 hours'");
+  const usage = await usageSummary();
+  const ingestStale = !lastIngest || Date.now() - new Date(lastIngest.started_at).getTime() > 26 * 36e5;
+  const metrics: [string, string, string | null, boolean][] = [
+    ["最終更新（収集）", lastIngest ? fmtDateTime(lastIngest.finished_at ?? lastIngest.started_at) : "未実行", ingestStale ? "26時間以上更新されていません" : null, ingestStale],
+    ["最新の取得件数", lastIngest?.stats ? `取得 ${lastIngest.stats.fetched}・新規 ${lastIngest.stats.added}・統合 ${lastIngest.stats.merged}` : "—", lastIngest?.stats ? `情報源 成功${lastIngest.stats.ok} / 失敗${lastIngest.stats.failed}` : null, !!lastIngest?.stats?.failed],
+    ["要約の成功件数（最新）", lastSumm?.stats ? `${lastSumm.stats.done} / ${lastSumm.stats.target}件` : "—", lastSumm?.stats?.failed ? `失敗 ${lastSumm.stats.failed}件` : null, !!lastSumm?.stats?.failed],
+    ["エラー件数（24時間）", `${errors24}件`, null, errors24 > 0],
+    ["本日のBEST5", todayBrief ? `${BRIEF_STATUS[todayBrief.status] ?? todayBrief.status}・${todayBrief.n}件` : "未生成", todayBrief ? `${fmtDateTime(todayBrief.published_at ?? todayBrief.generated_at)}${todayBrief.note ? `・${todayBrief.note}` : ""}` : "毎朝7〜8時台に自動生成", !todayBrief || todayBrief.status === "failed"],
+    ["API推定コスト（今月）", usd(usage.month_usd), `本日 ${usd(usage.today_usd)}・月額試算 ${usd(usage.projected_month_usd)}`, false],
+  ];
+
   const runs = await q<any>("SELECT * FROM job_runs ORDER BY id DESC LIMIT 15");
   const errors = await q<any>("SELECT e.*, r.job FROM job_errors e JOIN job_runs r ON r.id=e.job_run_id ORDER BY e.id DESC LIMIT 30");
   const [{ demo, pending }] = await q<any>(
@@ -57,6 +86,17 @@ async function Overview() {
 
   return (
     <div className="space-y-8">
+      {briefResult && <p className="rounded bg-sky-50 px-3 py-2 text-sm text-sky-900">BEST5の生成結果：{BRIEF_STATUS[briefResult] ?? briefResult}</p>}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {metrics.map(([k, v, sub, warn]) => (
+          <div key={k} className={`card p-4 ${warn ? "border-orange-300 bg-orange-50" : ""}`}>
+            <div className="text-xs text-ink-faint">{k}</div>
+            <div className="mt-1 font-bold tabular-nums">{v}</div>
+            {sub && <div className="mt-0.5 text-xs text-ink-soft">{sub}</div>}
+          </div>
+        ))}
+      </section>
+
       <section className="grid gap-3 sm:grid-cols-3">
         {env.map(([k, v, ok]) => (
           <div key={k} className={`card p-4 ${ok ? "" : "border-orange-300 bg-orange-50"}`}>
@@ -68,12 +108,36 @@ async function Overview() {
 
       <section className="flex flex-wrap items-center gap-3">
         <form action={actionIngest}><SubmitButton className="btn-primary" pending="収集中…（数分かかります）">今すぐ収集＋要約</SubmitButton></form>
+        <form action={actionBrief}><SubmitButton className="btn-primary" pending="BEST5を生成中…（1〜3分）">BEST5を今すぐ生成</SubmitButton></form>
         <form action={actionSummarize}><SubmitButton className="btn" pending="要約中…">未要約を要約（{pending}件）</SubmitButton></form>
         {demo > 0 ? (
           <form action={actionDeleteDemo}><SubmitButton className="btn text-red-700" pending="削除中…">デモデータを削除（{demo}件）</SubmitButton></form>
         ) : (
           <form action={actionSeedDemo}><SubmitButton className="btn" pending="投入中…">デモデータを投入</SubmitButton></form>
         )}
+      </section>
+
+      <section>
+        <h2 className="mb-2 font-bold">API利用状況（今月）</h2>
+        <div className="card overflow-x-auto">
+          <table className="w-full min-w-[560px]">
+            <thead><tr><th className="th">処理</th><th className="th">モデル</th><th className="th text-right">回数</th><th className="th text-right">入力トークン</th><th className="th text-right">出力トークン</th><th className="th text-right">推定コスト</th></tr></thead>
+            <tbody>
+              {usage.byJob.map((u: any) => (
+                <tr key={u.job + u.model}>
+                  <td className="td">{({ summarize: "要約", "brief-score": "BEST5 採点", "brief-analysis": "BEST5 深掘り分析" } as Record<string, string>)[u.job] ?? u.job}</td>
+                  <td className="td text-xs">{u.model}</td>
+                  <td className="td text-right tabular-nums">{u.calls}</td>
+                  <td className="td text-right tabular-nums">{Number(u.input_tokens).toLocaleString()}</td>
+                  <td className="td text-right tabular-nums">{Number(u.output_tokens).toLocaleString()}</td>
+                  <td className="td text-right tabular-nums">{usd(u.cost_usd)}</td>
+                </tr>
+              ))}
+              {!usage.byJob.length && <tr><td className="td text-ink-faint" colSpan={6}>今月の利用はまだありません</td></tr>}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-xs text-ink-faint">推定コストは公開単価（要約 {SUMMARY_MODEL}、分析 {ANALYSIS_MODEL}）からの概算です。正確な請求額は console.anthropic.com の Usage で確認してください。</p>
       </section>
 
       <section>
@@ -85,7 +149,7 @@ async function Overview() {
               {runs.map((r) => (
                 <tr key={r.id}>
                   <td className="td tabular-nums">{r.id}</td>
-                  <td className="td">{r.job === "ingest" ? "収集" : "要約"}</td>
+                  <td className="td">{({ ingest: "収集", summarize: "要約", brief: "BEST5" } as Record<string, string>)[r.job] ?? r.job}</td>
                   <td className="td">{r.trigger}</td>
                   <td className="td"><span className={`badge ${r.status === "success" ? "bg-emerald-50 text-emerald-800 ring-emerald-200" : r.status === "partial" ? "bg-amber-50 text-amber-800 ring-amber-200" : r.status === "running" ? "bg-sky-50 text-sky-800 ring-sky-200" : "bg-red-50 text-red-700 ring-red-200"}`}>{r.status}</span></td>
                   <td className="td whitespace-nowrap">{fmtDateTime(r.started_at)}</td>
@@ -103,7 +167,7 @@ async function Overview() {
         <div className="card divide-y divide-line">
           {errors.map((e) => (
             <div key={e.id} className="px-4 py-2.5 text-sm">
-              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{e.job === "ingest" ? "収集" : "要約"}・{e.scope}</div>
+              <div className="text-xs text-ink-faint">{fmtDateTime(e.created_at)}・{({ ingest: "収集", summarize: "要約", brief: "BEST5" } as Record<string, string>)[e.job] ?? e.job}・{e.scope}</div>
               <div className="mt-0.5 break-all text-red-700">{e.message}</div>
             </div>
           ))}

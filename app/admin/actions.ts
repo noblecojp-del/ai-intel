@@ -7,32 +7,46 @@ import { q } from "@/lib/db";
 import { runIngest } from "@/lib/ingest";
 import { runSummarize, saveSummary, summarizeStory, SUMMARY_MODEL } from "@/lib/ai";
 import { deleteDemo, seedDemo } from "@/lib/demo";
+import { runBrief } from "@/lib/brief";
+import { cookies } from "next/headers";
+import { ADMIN_COOKIE, verifySession } from "@/lib/auth";
+
+/** サーバーアクションは画面外から直接呼ばれる可能性があるため、毎回ログインを確認する */
+async function requireAdmin() {
+  if (!process.env.ADMIN_PASSWORD && process.env.NODE_ENV !== "production") return;
+  if (!(await verifySession((await cookies()).get(ADMIN_COOKIE)?.value))) redirect("/admin/login");
+}
 
 const MAX_TRACKED = 20;
 const str = (f: FormData, k: string) => String(f.get(k) ?? "").trim();
 
 export async function actionIngest() {
+  await requireAdmin();
   await runIngest("manual");
   await runSummarize("manual");
   revalidatePath("/", "layout");
 }
 
 export async function actionSummarize() {
+  await requireAdmin();
   await runSummarize("manual");
   revalidatePath("/", "layout");
 }
 
 export async function actionSeedDemo() {
+  await requireAdmin();
   await seedDemo();
   revalidatePath("/", "layout");
 }
 
 export async function actionDeleteDemo() {
+  await requireAdmin();
   await deleteDemo();
   revalidatePath("/", "layout");
 }
 
 export async function actionAddSource(f: FormData) {
+  await requireAdmin();
   const name = str(f, "name");
   const feed = str(f, "feed_url");
   if (!name || !/^https?:\/\//.test(feed)) return;
@@ -45,16 +59,19 @@ export async function actionAddSource(f: FormData) {
 }
 
 export async function actionToggleSource(f: FormData) {
+  await requireAdmin();
   await q("UPDATE sources SET is_active = NOT is_active WHERE id=$1", [Number(f.get("id"))]);
   revalidatePath("/admin");
 }
 
 export async function actionDeleteSource(f: FormData) {
+  await requireAdmin();
   await q("DELETE FROM sources WHERE id=$1", [Number(f.get("id"))]);
   revalidatePath("/admin");
 }
 
 export async function actionSaveCompany(f: FormData) {
+  await requireAdmin();
   const id = str(f, "id");
   const tracked = f.get("is_tracked") === "on";
   if (tracked) {
@@ -85,6 +102,7 @@ export async function actionSaveCompany(f: FormData) {
 }
 
 export async function actionEditStory(f: FormData) {
+  await requireAdmin();
   const id = Number(f.get("id"));
   const importance = Number(str(f, "importance"));
   await saveSummary(
@@ -108,10 +126,18 @@ export async function actionEditStory(f: FormData) {
 }
 
 export async function actionRegenerate(f: FormData) {
+  await requireAdmin();
   const id = Number(f.get("id"));
   if (!process.env.ANTHROPIC_API_KEY) redirect(`/admin/stories/${id}?error=nokey`);
   await q("UPDATE stories SET manually_edited=FALSE WHERE id=$1", [id]);
   await summarizeStory(new Anthropic(), id);
   revalidatePath("/", "layout");
   redirect(`/admin/stories/${id}?regenerated=${encodeURIComponent(SUMMARY_MODEL)}`);
+}
+
+export async function actionBrief() {
+  await requireAdmin();
+  const r = await runBrief("manual", { force: true });
+  revalidatePath("/", "layout");
+  redirect(`/admin?brief=${encodeURIComponent(r.status)}`);
 }

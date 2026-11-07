@@ -45,9 +45,53 @@ export async function seedDemo() {
       );
     }
   }
+  await seedDemoBrief();
+}
+
+/** BEST5 画面確認用のデモ（前日の日付・is_demo=true。実データの生成で上書きされる） */
+export async function seedDemoBrief() {
+  const stories = await q<{ id: number; title_ja: string }>("SELECT id, title_ja FROM stories WHERE is_demo ORDER BY id LIMIT 3");
+  if (!stories.length) return;
+  const date = new Date(Date.now() + 9 * 36e5 - 864e5).toISOString().slice(0, 10);
+  const [b] = await q<{ id: number }>(
+    `INSERT INTO daily_briefs (brief_date, status, window_start, window_end, candidate_count, model, published_at, is_demo)
+     VALUES ($1,'published', now() - interval '48 hours', now() - interval '24 hours', 7, 'demo', now(), TRUE)
+     ON CONFLICT (brief_date) DO NOTHING RETURNING id`,
+    [date],
+  );
+  if (!b) return;
+  const scores = [
+    { industry: 22, innovation: 17, business: 17, competition: 13, japan: 6, buzz: 9 },
+    { industry: 18, innovation: 12, business: 15, competition: 11, japan: 5, buzz: 7 },
+    { industry: 15, innovation: 10, business: 14, competition: 9, japan: 6, buzz: 6 },
+  ];
+  for (const [i, s] of stories.entries()) {
+    const total = Object.values(scores[i]).reduce((a, n) => a + n, 0);
+    await q(
+      `INSERT INTO brief_items (brief_id, rank, story_id, headline, total_score, scores, score_reason, analysis, confidence, confidence_note, check_status, model)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'medium',$9,'ok','demo')`,
+      [b.id, i + 1, s.id, s.title_ja, total, JSON.stringify(scores[i]), "（デモ）ここにAIが評価した重要な理由が入ります。",
+       JSON.stringify({
+         overview: "（デモ）ここに記事から確認できた事実だけでまとめた概要が入ります。",
+         key_facts: [{ text: "（デモ）確認できた事実1", source: 1 }, { text: "（デモ）確認できた事実2", source: 1 }],
+         what_changed: "（デモ）今回何が変わったのかが入ります。",
+         vs_past: "比較できる過去の情報がありません",
+         why_important: "（デモ）なぜ重要かの分析が入ります。",
+         competitors: "（デモ）競合企業への影響の分析が入ります。",
+         industry: "（デモ）業界全体への影響の分析が入ります。",
+         japan: "（デモ）日本企業への影響の分析が入ります。",
+         exec_points: ["（デモ）注目ポイント1", "（デモ）注目ポイント2"],
+         business_use: ["（デモ）活用方法1", "（デモ）活用方法2"],
+         outlook: { short: "（デモ）短期予測", mid: "（デモ）中期予測", long: "（デモ）長期予測" },
+         confidence: "medium", confidence_reason: "（デモ）確度の理由", missing_info: ["（デモ）情報不足の点"],
+       }),
+       "（デモ）確度の判断理由が入ります。"],
+    );
+  }
 }
 
 export async function deleteDemo() {
+  await q("DELETE FROM daily_briefs WHERE is_demo");
   await q("DELETE FROM stories WHERE is_demo");
   await q("DELETE FROM articles WHERE is_demo");
 }

@@ -1,6 +1,8 @@
 {
   "regions": ["hnd1"],
   "crons": [
-    { "path": "/api/cron/ingest", "schedule": "17 */3 * * *" }
+    { "path": "/api/cron/ingest", "schedule": "0 21 * * *" },
+    { "path": "/api/cron/brief", "schedule": "0 22 * * *" },
+    { "path": "/api/cron/brief?retry=1", "schedule": "0 23 * * *" }
   ]
 }

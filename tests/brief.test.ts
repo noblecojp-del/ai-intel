@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import { decideConfidence, jstDate, normalizeScore, selectTop, verifyAnalysis } from "../lib/brief-logic";
+import { estimateCostUsd } from "../lib/usage";
+
+const s = (id: number, v: number) => ({ story_id: id, reason: "r", industry: v, innovation: v, business: v, competition: v, japan: v, buzz: v });
+
+describe("採点", () => {
+  it("各項目を上限内に丸めて合計（100点満点）", () => {
+    const r = normalizeScore({ story_id: 1, reason: "x", industry: 99, innovation: -5, business: 20, competition: 15, japan: 10, buzz: 10 });
+    expect(r.scores.industry).toBe(25);
+    expect(r.scores.innovation).toBe(0);
+    expect(r.total).toBe(80);
+    expect(normalizeScore(s(1, 100)).total).toBe(100);
+  });
+  it("最低点未満は掲載せず、5件未満でも埋めない", () => {
+    const top = selectTop([s(1, 100), s(2, 2), s(3, 12)], new Set([1, 2, 3]), 60);
+    expect(top.map((t) => t.story_id)).toEqual([1, 3]);
+  });
+  it("候補外ID・重複を除外し、最大5件・点数順", () => {
+    const raw = [s(9, 100), s(1, 5), s(1, 100), s(2, 20), s(3, 20), s(4, 20), s(5, 20), s(6, 20)];
+    const top = selectTop(raw, new Set([1, 2, 3, 4, 5, 6]), 0);
+    expect(top).toHaveLength(5);
+    expect(top[0].story_id).toBe(1); // 重複は高い方（100点）を採用
+    expect(top.some((t) => t.story_id === 9)).toBe(false);
+    expect(top.filter((t) => t.story_id === 1)).toHaveLength(1);
+  });
+});
+
+describe("確度と検証", () => {
+  it("公式発表がなければAIが高と言っても高にしない", () => {
+    expect(decideConfidence("unconfirmed", 1, "high")).toBe("low");
+    expect(decideConfidence("reported", 2, "high")).toBe("medium");
+    expect(decideConfidence("official", 1, "high")).toBe("high");
+    expect(decideConfidence("official", 1, "low")).toBe("low");
+  });
+  it("出典番号と数値の整合性を確認", () => {
+    const src = ["OpenAI releases model with 40% lower price"];
+    expect(verifyAnalysis([{ text: "価格が40%下がった", source: 1 }], "概要", src).status).toBe("ok");
+    expect(verifyAnalysis([{ text: "価格が50%下がった", source: 1 }], "概要", src).status).toBe("warn");
+    expect(verifyAnalysis([{ text: "事実", source: 3 }], "概要", src).notes[0]).toContain("出典番号");
+  });
+  it("日本時間の日付", () => {
+    expect(jstDate(new Date("2026-11-07T15:30:00Z"))).toBe("2026-11-08");
+    expect(jstDate(new Date("2026-11-07T14:59:00Z"))).toBe("2026-11-07");
+  });
+});
+
+describe("推定コスト", () => {
+  it("公開単価から計算", () => {
+    expect(estimateCostUsd("claude-sonnet-5-5", 1_000_000, 100_000)).toBeCloseTo(3);
+    expect(estimateCostUsd("claude-haiku-5-5", 1000, 1000)).toBeCloseTo(0.0006);
+    expect(estimateCostUsd("unknown", 1, 1)).toBeNull();
+  });
+});

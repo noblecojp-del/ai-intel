@@ -13,7 +13,7 @@ async function createDriver(): Promise<Driver> {
   const url = process.env.DATABASE_URL;
   if (url) {
     const postgres = (await import("postgres")).default;
-    const sql = postgres(url, { max: 5, prepare: false, ssl: url.includes("localhost") ? false : "require" });
+    const sql = postgres(url, { max: 5, prepare: false, ssl: url.includes("localhost") ? false : "require", onnotice: () => {} });
     return {
       async query(text, params = []) {
         return (await sql.unsafe(text, params as any[])) as any;
@@ -43,7 +43,16 @@ const g = globalThis as unknown as { __aiIntelDb?: Promise<Driver> };
 
 async function init(): Promise<Driver> {
   const d = await createDriver();
-  await d.exec(SCHEMA_SQL);
+  // 複数のサーバーが同時に起動するとテーブル作成が競合することがあるため、競合時は少し待って再試行
+  for (let i = 0; ; i++) {
+    try {
+      await d.exec(SCHEMA_SQL);
+      break;
+    } catch (e: any) {
+      if (i >= 3 || !["23505", "42P07", "40P01"].includes(e?.code)) throw e;
+      await new Promise((r) => setTimeout(r, 400 * (i + 1)));
+    }
+  }
   const [{ n }] = await d.query<{ n: number }>("SELECT count(*)::int AS n FROM companies");
   if (n === 0) await seedBase(d);
   return d;

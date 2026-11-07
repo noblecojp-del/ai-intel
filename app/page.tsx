@@ -1,11 +1,14 @@
 import Link from "next/link";
 import { dashboardStats, listCompanies, listStories, topStories } from "@/lib/queries";
 import { Empty, fmtDateTime, SectionTitle, StoryCard } from "@/components/ui";
+import { getHomeBrief } from "@/lib/brief-queries";
+import { TopFive } from "@/components/brief";
 
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
-  const [top, latest, stats, companies] = await Promise.all([
+  const [home, top, latest, stats, companies] = await Promise.all([
+    getHomeBrief(),
     topStories(7, 5),
     listStories({ limit: 12 }),
     dashboardStats(),
@@ -21,6 +24,8 @@ export default async function Dashboard() {
           画面確認用の<strong>デモデータ（{stats.demo_count}件）</strong>が含まれています。実在の発表ではありません。管理画面から削除できます。
         </div>
       )}
+
+      <TopFive {...home} />
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
@@ -39,7 +44,7 @@ export default async function Dashboard() {
       <div className="grid gap-8 lg:grid-cols-3">
         <div className="space-y-8 lg:col-span-2">
           <section>
-            <SectionTitle>今週の重要ニュース</SectionTitle>
+            <SectionTitle>今週の注目ニュース</SectionTitle>
             {top.length ? top.map((s) => <StoryCard key={s.id} s={s} />) : (
               <Empty>まだニュースがありません。管理画面から「今すぐ収集」を実行してください。</Empty>
             )}

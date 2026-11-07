@@ -107,4 +107,50 @@ CREATE TABLE IF NOT EXISTS job_errors (
   message    TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- 毎日の重要ニュースBEST5
+CREATE TABLE IF NOT EXISTS daily_briefs (
+  id               SERIAL PRIMARY KEY,
+  brief_date       DATE UNIQUE NOT NULL,                 -- 日本時間の日付
+  status           TEXT NOT NULL DEFAULT 'running',      -- running / published / empty / failed
+  window_start     TIMESTAMPTZ,
+  window_end       TIMESTAMPTZ,
+  candidate_count  INT NOT NULL DEFAULT 0,
+  model            TEXT,
+  note             TEXT,
+  generated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  published_at     TIMESTAMPTZ,
+  is_demo          BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE IF NOT EXISTS brief_items (
+  id                  SERIAL PRIMARY KEY,
+  brief_id            INT REFERENCES daily_briefs(id) ON DELETE CASCADE,
+  rank                SMALLINT NOT NULL,
+  story_id            INT REFERENCES stories(id) ON DELETE SET NULL,
+  headline            TEXT NOT NULL,
+  total_score         SMALLINT NOT NULL,                 -- 100点満点（AIによる評価）
+  scores              JSONB NOT NULL,                    -- 項目別の点数
+  score_reason        TEXT,
+  analysis            JSONB,                             -- 深掘り分析（事実/分析/予測を区別）
+  confidence          TEXT,                              -- high / medium / low
+  confidence_note     TEXT,
+  check_status        TEXT NOT NULL DEFAULT 'unchecked', -- ok / warn / failed
+  check_note          TEXT,
+  model               TEXT,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (brief_id, rank)
+);
+
+-- Claude API の使用量と推定コスト
+CREATE TABLE IF NOT EXISTS api_usage (
+  id            SERIAL PRIMARY KEY,
+  job           TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  input_tokens  INT NOT NULL DEFAULT 0,
+  output_tokens INT NOT NULL DEFAULT 0,
+  cost_usd      NUMERIC(12,6),
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS api_usage_created_idx ON api_usage(created_at DESC);
 `;

@@ -2,7 +2,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { q } from "./db";
 import { CATEGORIES } from "./seed-data";
-import { errMsg, finishJob, logJobError, startJob, withRetry } from "./jobs";
+import { errMsg, finishJob, logJobError, startJob } from "./jobs";
+import { callClaude, toolInput } from "./usage";
 
 export const SUMMARY_MODEL = process.env.AI_SUMMARY_MODEL || "claude-haiku-5-5";
 const MAX_PER_RUN = Number(process.env.AI_MAX_SUMMARIES_PER_RUN || 20);
@@ -67,19 +68,15 @@ export async function summarizeStory(client: Anthropic, storyId: number) {
     .map((a, i) => `[記事${i + 1}] 情報源: ${a.source ?? "不明"}（${a.source_type === "official" ? "公式" : "報道"}）\nタイトル: ${a.title}\n抜粋: ${a.excerpt || "(抜粋なし)"}`)
     .join("\n\n");
 
-  const res = await withRetry(() =>
-    client.messages.create({
-      model: SUMMARY_MODEL,
-      max_tokens: 1200,
-      system: SYSTEM,
-      tools: [TOOL],
-      tool_choice: { type: "tool", name: "save_summary" },
-      messages: [{ role: "user", content: `以下は同一の発表・出来事を扱う記事です。まとめて要約してください。\n\n${doc}` }],
-    }),
-  );
-  const block = res.content.find((b) => b.type === "tool_use");
-  if (!block || block.type !== "tool_use") throw new Error("要約の形式が不正です");
-  const p = block.input as SummaryPayload;
+  const res = await callClaude(client, "summarize", {
+    model: SUMMARY_MODEL,
+    max_tokens: 1200,
+    system: SYSTEM,
+    tools: [TOOL],
+    tool_choice: { type: "tool", name: "save_summary" },
+    messages: [{ role: "user", content: `以下は同一の発表・出来事を扱う記事です。まとめて要約してください。\n\n${doc}` }],
+  });
+  const p = toolInput<SummaryPayload>(res);
   const check = checkConsistency(p, doc);
   await saveSummary(storyId, p, SUMMARY_MODEL, "ai", check);
 }

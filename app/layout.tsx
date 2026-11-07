@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 
 const NAV = [
   { href: "/", label: "ダッシュボード" },
+  { href: "/briefs", label: "TOP5" },
   { href: "/news", label: "ニュース" },
   { href: "/companies", label: "企業" },
   { href: "/roadmap", label: "人物・動画・比較", soon: true },
