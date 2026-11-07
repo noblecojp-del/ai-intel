@@ -13,10 +13,21 @@ async function createDriver(): Promise<Driver> {
   const url = process.env.DATABASE_URL;
   if (url) {
     const postgres = (await import("postgres")).default;
-    const sql = postgres(url, { max: 5, prepare: false, ssl: url.includes("localhost") ? false : "require", onnotice: () => {} });
+    const sql = postgres(url, { max: 5, prepare: false, ssl: url.includes("localhost") ? false : "require", onnotice: () => {},
+      // json/jsonb 列には JSON.stringify 済みの文字列を渡しているため、そのまま送る（既定だと二重にエンコードされる）
+      types: {
+        json: {
+          to: 114,
+          from: [114, 3802],
+          serialize: (x: unknown) => (typeof x === "string" ? x : JSON.stringify(x)),
+          parse: (x: string) => JSON.parse(x),
+        },
+      } as any,
+    });
     return {
       async query(text, params = []) {
-        return (await sql.unsafe(text, params as any[])) as any;
+        const rows: any = await sql.unsafe(text, params as any[]);
+        return fixJsonColumns(rows);
       },
       async exec(text) {
         await sql.unsafe(text);
@@ -37,6 +48,22 @@ async function createDriver(): Promise<Driver> {
       await db.exec(text);
     },
   };
+}
+
+/** 過去に二重エンコードで保存されたデータも読めるよう、json/jsonb 列の文字列値を解釈し直す */
+function fixJsonColumns(rows: any) {
+  const jsonCols = (rows?.columns ?? []).filter((c: any) => c.type === 114 || c.type === 3802).map((c: any) => c.name);
+  if (!jsonCols.length) return rows;
+  for (const r of rows) {
+    for (const k of jsonCols) {
+      let v = r[k];
+      for (let i = 0; i < 2 && typeof v === "string"; i++) {
+        try { v = JSON.parse(v); } catch { break; }
+      }
+      r[k] = v;
+    }
+  }
+  return rows;
 }
 
 const g = globalThis as unknown as { __aiIntelDb?: Promise<Driver> };
