@@ -18,8 +18,11 @@ export async function withRetry<T>(fn: () => Promise<T>, attempts = 3, baseMs = 
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
-    } catch (e) {
+    } catch (e: any) {
       last = e;
+      // 入力エラー（4xx。ただし429の混雑は除く）は再試行しても結果が変わらないので即終了
+      const st = Number(e?.status);
+      if (st >= 400 && st < 500 && st !== 429) throw e;
       if (i < attempts - 1) await new Promise((r) => setTimeout(r, baseMs * 2 ** i));
     }
   }

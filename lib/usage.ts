@@ -27,20 +27,53 @@ export function estimateCostUsd(model: string, inputTokens: number, outputTokens
   return (inputTokens * pin + outputTokens * pout) / 1_000_000;
 }
 
+// 強制ツール呼び出し（tool_choice: tool）に対応していないモデルを記録しておき、以後は自動選択＋指示で呼ぶ
+const noForcedTool = new Set<string>();
+
+async function record(job: string, model: string, res: Anthropic.Message) {
+  const inTok = (res.usage?.input_tokens ?? 0) + (res.usage?.cache_read_input_tokens ?? 0) + (res.usage?.cache_creation_input_tokens ?? 0);
+  const outTok = res.usage?.output_tokens ?? 0;
+  try {
+    await q("INSERT INTO api_usage (job, model, input_tokens, output_tokens, cost_usd) VALUES ($1,$2,$3,$4,$5)", [
+      job, model, inTok, outTok, estimateCostUsd(model, inTok, outTok),
+    ]);
+  } catch {
+    // 記録失敗で本処理を止めない
+  }
+}
+
 export async function callClaude(
   client: Anthropic,
   job: string,
   params: Anthropic.MessageCreateParamsNonStreaming,
 ): Promise<Anthropic.Message> {
-  const res = await withRetry(() => client.messages.create(params));
-  const inTok = (res.usage?.input_tokens ?? 0) + (res.usage?.cache_read_input_tokens ?? 0) + (res.usage?.cache_creation_input_tokens ?? 0);
-  const outTok = res.usage?.output_tokens ?? 0;
-  try {
-    await q("INSERT INTO api_usage (job, model, input_tokens, output_tokens, cost_usd) VALUES ($1,$2,$3,$4,$5)", [
-      job, params.model, inTok, outTok, estimateCostUsd(params.model, inTok, outTok),
-    ]);
-  } catch {
-    // 記録失敗で本処理を止めない
+  const forced = params.tool_choice?.type === "tool" ? params.tool_choice.name : null;
+  if (forced && !noForcedTool.has(params.model)) {
+    try {
+      const res = await withRetry(() => client.messages.create(params));
+      await record(job, params.model, res);
+      return res;
+    } catch (e: any) {
+      if (!(e?.status === 400 && String(e?.message ?? "").includes("tool_choice"))) throw e;
+      noForcedTool.add(params.model);
+    }
+  }
+  if (!forced) {
+    const res = await withRetry(() => client.messages.create(params));
+    await record(job, params.model, res);
+    return res;
+  }
+  // 自動選択モード：ツールを使うよう明示し、使われなければ1回だけやり直す
+  const auto: Anthropic.MessageCreateParamsNonStreaming = {
+    ...params,
+    tool_choice: { type: "auto" },
+    system: `${typeof params.system === "string" ? params.system : ""}\n\n回答は必ず ${forced} ツールを1回だけ呼び出して返してください。ツール以外の文章は書かないでください。`,
+  };
+  let res = await withRetry(() => client.messages.create(auto));
+  await record(job, params.model, res);
+  if (!res.content.some((b) => b.type === "tool_use")) {
+    res = await withRetry(() => client.messages.create(auto));
+    await record(job, params.model, res);
   }
   return res;
 }

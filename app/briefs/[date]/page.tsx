@@ -27,7 +27,7 @@ export default async function BriefPage({ params }: { params: P }) {
       <h1 className="mt-2 text-2xl font-bold leading-snug sm:text-3xl">{fmtBriefDate(brief.brief_date)}<br className="sm:hidden" /> AI重要ニュース TOP5</h1>
       <p className="mt-2 text-xs leading-relaxed text-ink-faint">
         対象期間 {fmtDateTime(brief.window_start)} 〜 {fmtDateTime(brief.window_end)}・候補 {brief.candidate_count}件から選定・
-        公開 {fmtDateTime(brief.published_at ?? brief.generated_at)}・分析モデル {brief.model}
+        {brief.published_at ? `公開 ${fmtDateTime(brief.published_at)}` : `生成 ${fmtDateTime(brief.generated_at)}`}・分析モデル {brief.model}
       </p>
       {brief.is_demo && <p className="mt-3 rounded bg-amber-50 px-3 py-2 text-sm text-amber-900"><DemoBadge /> 画面確認用のデモです。実在のニュースではありません。</p>}
       {brief.status === "failed" && <p className="mt-3 rounded bg-red-50 px-3 py-2 text-sm text-red-800">この日の生成は失敗しました（未更新）。{brief.note}</p>}

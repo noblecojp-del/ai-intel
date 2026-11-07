@@ -78,7 +78,7 @@ async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<S
     .join("\n\n");
   const res = await callClaude(client, "brief-score", {
     model: ANALYSIS_MODEL,
-    max_tokens: 8000,
+    max_tokens: 12000,
     system: SCORE_SYSTEM,
     tools: [SCORE_TOOL],
     tool_choice: { type: "tool", name: "save_scores" },
@@ -173,7 +173,7 @@ async function analyzeStory(client: Anthropic, storyId: number) {
 
   const res = await callClaude(client, "brief-analysis", {
     model: ANALYSIS_MODEL,
-    max_tokens: 6000,
+    max_tokens: 10000,
     system: ANALYSIS_SYSTEM,
     tools: [ANALYSIS_TOOL],
     tool_choice: { type: "tool", name: "save_analysis" },
