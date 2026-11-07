@@ -52,3 +52,14 @@ describe("推定コスト", () => {
     expect(estimateCostUsd("unknown", 1, 1)).toBeNull();
   });
 });
+
+import { parseScoreItems } from "../lib/brief";
+describe("採点結果の読み取り", () => {
+  it("文字列化JSON・別名キー・ID表記を吸収", () => {
+    const row = { industry: 20, innovation: 10, business: 10, competition: 5, japan: 5, buzz: 5 };
+    expect(parseScoreItems({ items: [{ story_id: 3, ...row }] })[0].story_id).toBe(3);
+    expect(parseScoreItems({ items: JSON.stringify([{ story_id: "ID 7", ...row }]) })[0].story_id).toBe(7);
+    expect(parseScoreItems({ scores: [{ id: 9, ...row }] })[0].story_id).toBe(9);
+    expect(parseScoreItems({ foo: 1 })).toEqual([]);
+  });
+});

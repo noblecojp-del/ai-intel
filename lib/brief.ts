@@ -84,9 +84,30 @@ async function scoreCandidates(client: Anthropic, cands: Candidate[]): Promise<{
     tool_choice: { type: "tool", name: "save_scores" },
     messages: [{ role: "user", content: `候補は${cands.length}件です。すべて採点してください。\n\n${list}` }],
   });
-  const { items } = toolInput<{ items: RawScore[] }>(res);
+  const input = toolInput<any>(res);
+  const items = parseScoreItems(input);
   const ids = new Set(cands.map((c) => c.id));
-  return { top: selectTop(items ?? [], ids, MIN_SCORE, 5), all: rankAll(items ?? [], ids) };
+  const all = rankAll(items, ids);
+  if (!all.length) {
+    // 採点結果を読み取れない場合は「該当なし」と誤表示せず失敗として扱う
+    throw new Error(`採点結果を読み取れませんでした: ${JSON.stringify(input).slice(0, 300)}`);
+  }
+  return { top: selectTop(items, ids, MIN_SCORE, 5), all };
+}
+
+/** モデルによって出力の形が揺れるため、よくある形を吸収する（文字列化されたJSON・別名のキー・ID表記など） */
+export function parseScoreItems(input: any): RawScore[] {
+  let v = input?.items ?? input?.scores ?? input?.results ?? input;
+  if (typeof v === "string") {
+    try { v = JSON.parse(v); } catch { return []; }
+  }
+  if (v && !Array.isArray(v) && Array.isArray(v.items)) v = v.items;
+  if (!Array.isArray(v)) return [];
+  return v.map((r: any) => ({
+    ...r,
+    story_id: Number(String(r.story_id ?? r.id ?? r.storyId ?? "").replace(/[^0-9]/g, "")),
+    reason: r.reason ?? r.score_reason ?? "",
+  }));
 }
 
 // ---------- 深掘り分析 ----------
